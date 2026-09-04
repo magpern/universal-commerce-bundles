@@ -2,26 +2,25 @@
 
 ## Status
 
-**Proposed — NOT accepted.** The snapshot and per-child line contract
-(`_ucb_kit`, `_ucb_parent_item_id`, `_ucb_component`, `_ucb_snapshot_version`,
-`_ucb_position`) is settled and proven. The **refund-operation portion**
-(`_ucb_refund_ops`, `_ucb_refund_op_id`) is not yet accepted:
+**Accepted.** The snapshot and per-child line contract (`_ucb_kit`,
+`_ucb_parent_item_id`, `_ucb_component`, `_ucb_snapshot_version`,
+`_ucb_position`) was settled and proven by S1-C/S1-D, and was never in
+question.
 
-- Spike S1-F closed the two windows S1-E left open (identity durability, and the
-  absence of an atomic claim) with live evidence, including 59 concurrent
-  iterations against a control that fails.
-- It also established that a **periodic reconciliation sweep over `pending`
-  records is a design requirement, not an optional extra** — and that sweep was
-  neither built nor tested. Without it, a crash in a narrow window after the
-  refund is created but before its total is written leaves a durable refund
-  whose total reads as `-0`, repaired only if a retry with the same operation
-  ID happens to run.
-- The protocol also now brackets third-party hook code inside two database
-  transactions, which is in tension with the principle established elsewhere in
-  this design that arbitrary hooks must not run inside an open transaction.
-
-This ADR is accepted only once the sweep is specified and proven, and the
-transaction-scope question is decided.
+This ADR previously grew a **refund-operation contract**
+(`_ucb_refund_ops`, `_ucb_refund_op_id`) to support a custom refund
+idempotency/orchestration subsystem (spikes S1-E, S1-F). That subsystem was
+live-proved to close every window it was chartered to close, and was then
+**rejected by product-owner decision**: a generic v1 bundles plugin does
+not take on a two-layer distributed lock, transactions around refund
+creation/restocking, an operation ledger, and a required reconciliation
+sweep. **Neither `_ucb_refund_ops` nor `_ucb_refund_op_id` is part of the
+v1 contract.** The refund-linkage responsibility this ADR's snapshot
+supports is now covered by ADR-0002's refund clause, at the narrow
+native-refund-only scope proven by spike S1-G (PASS). The rejected
+subsystem is preserved below and in `docs/spikes/s1-e-*`/`docs/spikes/s1-f-*`
+(each carrying a visible correction note) purely as evidence for why it
+does not fit a generic v1 plugin — not as accepted design.
 
 ## Context
 
@@ -38,8 +37,13 @@ WooCommerce's core refund-creation function was found, by live testing, to
 have no idempotency guard of its own — a repeated call with an identical
 line-items payload (a retried webhook, an accidental double-submit)
 double-restocks every component. This is a defect in bare WooCommerce core,
-not something this plugin can fix upstream, so a narrow guard is needed at
-this plugin's own refund-orchestration boundary.
+not something this plugin can fix upstream. An earlier version of this ADR
+treated that finding as a reason to build a guard at this plugin's own
+refund-orchestration boundary; the product owner subsequently decided that
+scope does not belong in a generic v1 plugin (see "Status" above) — the
+defect is left as bare core's, and this plugin's only refund
+responsibility is the derived-quantity component-line linkage described in
+ADR-0002.
 
 ## Decision
 
@@ -85,8 +89,21 @@ Each real child order/cart line carries:
 | `_ucb_snapshot_version` | the parent-line snapshot schema version this child was created under |
 | `_ucb_position` | stable ordering for Contents-line rendering |
 
-### Refund-operation idempotency guard (closes a real WooCommerce core
-defect; corrected twice after review findings — see "Corrections" below)
+### Refund linkage — native flow only (no operation-id contract in v1)
+
+**This plugin adds no meta contract of its own for refunds beyond the
+standard refunded-item linkage meta already placed on each derived refund
+line item at creation time.** The parent-line snapshot above still exists
+for historical rendering *and* for refund-linkage arithmetic — the
+derived-quantity formula `child_refund_qty = (original_child_qty /
+original_parent_qty) × parent_qty_refunded` is stated and mechanised in
+ADR-0002's refund clause, via the real, documented `woocommerce_create_refund`
+action, proven live by spike S1-G (PASS, both order-storage modes). There is
+no `_ucb_refund_ops` order meta and no `_ucb_refund_op_id` refund-object
+meta in the accepted v1 contract.
+
+<details>
+<summary>Historical: the rejected refund-operation idempotency guard this ADR previously specified (kept for the record, not part of the v1 contract)</summary>
 
 A refund operation id is derived from a stable hash of the order item,
 refund, and component identity, so that a genuinely different, second
@@ -165,6 +182,14 @@ behind.
 operation interrupted by a crash is otherwise only healed by a later retry
 that happens to carry the same operation id.
 
+**Rejected by product-owner decision, in full — not carried forward.**
+Every mechanism above was real and live-proven, and none of it is part of
+the v1 contract. See the "Status" section above and
+`docs/spikes/s1-g-native-refund-line-linkage.md` for the accepted
+replacement.
+
+</details>
+
 ### Presentation contract
 
 - Historical orders render **only** from the parent-line snapshot, never
@@ -195,25 +220,23 @@ that happens to carry the same operation id.
   the happy path (see ADR-0004) — it only needs to recognise the presence
   of a kit marker on the parent line, to skip it. The snapshot itself is
   still required, for historical rendering and refund-linkage arithmetic.
-- The refund idempotency guard is a narrow reuse of the same
-  "operation-id-in-a-durable-record" pattern that Architecture A's
-  (rejected) stock-operations journal used more broadly — proof that the
-  pattern itself is sound, even though its broader application (a whole
-  journal/outbox subsystem) was not adopted.
-- **The guard needs two narrow database transactions.** This supersedes the
-  earlier claim that none was needed. The durable refund object is still
-  the authoritative record, but making its identity and its restock durable
-  *together with it* cannot be done by attaching meta alone, because
-  neither order data store writes a refund's row and its meta in one
-  transaction. Both brackets are deliberately narrow, and neither contains
-  an external side effect. Two operational consequences follow: third-party
-  code hooked on the refund's creating save or on the per-item restock
-  actions now runs inside a transaction, and an implementation must detect
-  a transaction already opened by its caller rather than silently
-  committing it by starting its own.
-- **A periodic reconciliation sweep over `pending` records is part of the
-  contract.** Without it, an operation interrupted by a crash is only
-  healed if some later retry happens to carry the same operation id.
+- **The refund idempotency guard described in the collapsed historical
+  section above is rejected in full by product-owner decision and is not
+  part of the v1 contract** — no operation ledger, no two-layer lock, no
+  transactions around refund creation/restocking, no reconciliation sweep.
+  A generic v1 bundles plugin does not take on that scope. See "Status"
+  above.
+- This plugin does not guarantee exactly-once refund execution across
+  crashes, concurrent requests, HTTP retries, gateways or webhooks, and
+  does not expose a generic refund API or a webhook wrapper. Duplicate-
+  refund prevention for any external integration is that integration's own
+  responsibility.
+- The bare-WooCommerce-core idempotency defect this ADR originally used to
+  justify the guard (a repeated refund call with an identical line-items
+  payload double-restocks every component) is left as-is — not this
+  plugin's to fix, and not something the plugin's own refund-line-linkage
+  responsibility (ADR-0002, proven by S1-G) makes any worse than it already
+  is for an ordinary, non-kit product refunded the same way.
 
 > **Correction, found by review, then closed by live execution.** The
 > refund-operation guard first documented here recorded a single
@@ -261,6 +284,23 @@ that happens to carry the same operation id.
 > refund's creation, the restock made atomic with its own completion
 > record, and unconditional reconciliation before any decision to create.
 > See `docs/spikes/s1-f-refund-atomicity-and-locking.md`.
+
+> **Third correction — the entire refund-operation contract above was
+> rejected by product-owner decision, not by a further engineering fix.**
+> S1-F's protocol closed both windows the second correction named, with
+> strong live evidence, but in doing so surfaced a third: a periodic
+> reconciliation sweep over `pending` records became a design requirement
+> and was neither built nor tested, and the protocol brackets third-party
+> hook code inside two database transactions. Faced with that choice — build
+> the sweep and accept the transaction risk, or scope the responsibility
+> down — the product owner chose to descope. **This entire section's
+> `_ucb_refund_ops`/`_ucb_refund_op_id` contract is rejected and is not part
+> of the v1 design.** The replacement — this plugin adds derived component
+> refund lines through WooCommerce's own native refund flow only, via the
+> real `woocommerce_create_refund` action, with no operation ledger, lock,
+> transaction or sweep of its own — was proven live, in both order-storage
+> modes, by spike S1-G. See `docs/spikes/s1-g-native-refund-line-linkage.md`
+> and ADR-0002's refund clause for the accepted design.
 
 ## Rejected alternatives
 
@@ -318,3 +358,12 @@ that happens to carry the same operation id.
   restock code path and would not fire for a kit's own (unmanaged) parent
   line; the real, documented `woocommerce_refund_created` action is used
   instead.
+- **The entire refund-operation idempotency/orchestration contract above**
+  (operation ledger, two-layer lock, transactions around refund
+  creation/restocking, reconciliation sweep — S1-E/S1-F, all of the
+  individual design choices immediately above). **Rejected by
+  product-owner decision.** Every mechanism was live-proven to work; the
+  decision was about scope, not correctness — a generic v1 bundles plugin
+  does not take on a custom refund idempotency/orchestration subsystem.
+  Replaced by the native-refund-only scope in ADR-0002's refund clause,
+  proven sufficient by spike S1-G (PASS).

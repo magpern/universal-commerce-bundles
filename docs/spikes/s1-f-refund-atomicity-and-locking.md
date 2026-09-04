@@ -1,5 +1,32 @@
 # Spike S1-F — Refund atomicity and locking
 
+> ## ⚠ REJECTED BY PRODUCT-OWNER DECISION — read this correction first
+>
+> This spike closed the two windows it was chartered to close, live, with
+> strong evidence (§6), and in doing so found a **third** window (§7): a
+> periodic reconciliation sweep over `pending` records became a design
+> requirement and was neither built nor tested, and the protocol brackets
+> third-party hook code inside two database transactions, in tension with
+> this plan's own established principle that arbitrary hooks must not run
+> inside an open transaction. Faced with that choice — build the sweep and
+> accept the transaction risk, or scope the responsibility down — **the
+> product owner chose to descope**: UCB does not own a custom refund
+> idempotency/orchestration subsystem in v1. The two-layer lock, the
+> transactions, the reconciliation sweep and the whole `_ucb_refund_ops`/
+> `_ucb_refund_op_id` protocol below are **rejected as implementation
+> design**, kept here exactly as executed, as evidence for why a generic v1
+> plugin does not take on this scope — not as an accepted design.
+>
+> The **accepted v1 refund design** is different in kind, not merely
+> smaller: UCB adds the derived component refund lines through
+> WooCommerce's own native refund flow only, with no operation-id ledger,
+> no lock, no transaction and no sweep — proven live in both order-storage
+> modes by
+> [`s1-g-native-refund-line-linkage.md`](s1-g-native-refund-line-linkage.md).
+> See `ARCHITECTURE.md`'s Refunds section and
+> [`../adr/0002-component-availability-reservation-reduction-and-restoration-lifecycle.md`](../adr/0002-component-availability-reservation-reduction-and-restoration-lifecycle.md)
+> for the current accepted scope.
+
 **Scope:** close the two windows that spike S1-E did **not** close in the
 refund-idempotency protocol — (1) a durable refund and restock existing with
 no durable identity linking either to its operation id, and (2) the

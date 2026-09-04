@@ -553,6 +553,32 @@ kit) was still correctly allowed and applied.
 > corrected contract (new `_ucb_refund_op_id` refund-level meta key, and
 > the `_ucb_refund_ops` state-machine semantics).
 
+> ## ⚠ The entire custom refund-orchestration path this section started, rejected by product-owner decision
+>
+> This section began a line of work — a write-before-call "applied" flag,
+> corrected above into a `pending`→`completed` state machine, then carried
+> further by `s1-e-refund-idempotency-recovery.md` and
+> `s1-f-refund-atomicity-and-locking.md` into a two-layer distributed lock,
+> two database transactions, and a required-but-unbuilt reconciliation
+> sweep. Every one of those correction steps was real, live-proven
+> engineering. The end state was nonetheless **rejected by the product
+> owner**: a generic v1 bundles plugin does not get a custom refund
+> idempotency/orchestration subsystem — that scope expands UCB well beyond
+> its safe v1 responsibility boundary for a plugin meant to be generic and
+> reusable, not just correct for one store.
+>
+> **This document's item 7 above and its correction are preserved exactly
+> as executed**, as the historical record of why that path was tried and
+> where it led — nothing here has been rewritten. The **accepted v1 refund
+> design is narrower and different in kind**: UCB adds the derived
+> component refund lines through WooCommerce's own native refund flow and
+> nothing else — no custom idempotency guard, no lock, no transaction, no
+> ledger, no sweep. It was proven live, in both order-storage modes, by
+> `s1-g-native-refund-line-linkage.md`. See `ARCHITECTURE.md`'s Refunds
+> section and
+> `../adr/0002-component-availability-reservation-reduction-and-restoration-lifecycle.md`
+> for the current accepted scope.
+
 ---
 
 ### 2.8 Item 8 — Fulfillment parent-skip consistency: PASS

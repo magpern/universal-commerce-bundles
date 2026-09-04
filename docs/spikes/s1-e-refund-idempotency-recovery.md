@@ -53,6 +53,28 @@
 > [`../adr/0003-versioned-cart-order-snapshot-contract.md`](../adr/0003-versioned-cart-order-snapshot-contract.md);
 > the evidence is in
 > [`s1-f-refund-atomicity-and-locking.md`](s1-f-refund-atomicity-and-locking.md).
+
+> ## ⚠ Second, later correction — the whole approach below was rejected by product-owner decision
+>
+> The correction above records how this spike's own design was hardened by
+> S1-F. That hardened design was then **itself rejected in full** by the
+> product owner: a `pending`→`completed` refund state machine, a two-layer
+> distributed lock, database transactions around refund creation and
+> restocking, and a required reconciliation sweep are **not** part of the
+> accepted v1 design, however correctly S1-F proved them to work. A generic
+> v1 bundles plugin does not take on a custom refund idempotency/
+> orchestration subsystem — that is a scope decision, not a defect in the
+> engineering, and this document (like S1-F) is kept exactly as executed as
+> the record of why that path was tried and where it led.
+>
+> The **accepted v1 refund design** is narrower and different in kind: UCB
+> adds the derived component refund lines through WooCommerce's own native
+> refund flow only — no operation-id ledger, no lock, no transaction, no
+> sweep — proven live in both order-storage modes by
+> [`s1-g-native-refund-line-linkage.md`](s1-g-native-refund-line-linkage.md).
+> See `ARCHITECTURE.md`'s Refunds section and
+> [`../adr/0002-component-availability-reservation-reduction-and-restoration-lifecycle.md`](../adr/0002-component-availability-reservation-reduction-and-restoration-lifecycle.md)
+> for the current accepted scope.
 > Everything below is the original S1-E text, unedited.
 
 ---

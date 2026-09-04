@@ -7,6 +7,17 @@ A (spikes S1-A/S1-B) was independently proven viable on its own terms and is
 retained below as the record of a rejected alternative, not as
 implementation work.
 
+**The refund clause is accepted at a narrow, native-refund-only scope,
+proven by spike S1-G.** An earlier version of this clause described a
+custom refund idempotency/orchestration subsystem (spikes S1-E, S1-F) that
+was live-proved to work and then **rejected by product-owner decision**: a
+generic v1 bundles plugin does not take on a two-layer distributed lock,
+transactions around refund creation/restocking, an operation ledger, and a
+required reconciliation sweep. That subsystem is preserved below, in
+`docs/spikes/s1-e-*` and `docs/spikes/s1-f-*` (each carrying a visible
+correction note), purely as evidence for why it doesn't fit — not as
+accepted design. The current decision text is below.
+
 ## Context
 
 A kit product does not itself manage WooCommerce stock — its availability
@@ -64,55 +75,64 @@ unavailable — was still correctly handled: core reduced, and later
 restored, the real component stock **with zero plugin code running at
 all**.
 
-Refunds: restock remains opt-in via the real, documented
-`woocommerce_refund_created` action; the *linkage arithmetic*
-(`child_qty = (child_line_qty / kit_line_qty) × kit_qty_refunded`) is this
-plugin's, and the restock *execution* is still core's own restock function
-— but it is invoked by this plugin rather than by the core refund call, so
-that it can be made atomic with its own completion record (below).
+**Refunds — native flow only.** This plugin supports only WooCommerce's
+normal, native refund flow. It does not create, persist, retry or
+orchestrate refunds, and owns no transaction, lock, ledger or
+reconciliation sweep for them. Its entire refund responsibility is: when a
+kit-parent order line is refunded through that native flow, add the
+correctly linked component-child refund lines at the derived quantity
+`child_refund_qty = (original_child_qty / original_parent_qty) ×
+parent_qty_refunded`. WooCommerce remains responsible for creating and
+persisting the refund, optional restocking, refund totals, admin
+nonce/request handling, payment-gateway refund execution, and API/webhook
+retry semantics.
 
-A real defect was found in bare WooCommerce core during this work: its
-refund-creation function has no idempotency guard of its own, and a
-repeated call with an identical line-items payload double-restocks every
-component. Two further core properties, verified by source read against
-the current release and then confirmed live, shape the guard: the refund
-is **already durably persisted before** the action that documents itself
-as firing "before save" (the two total-recalculation helpers called just
-ahead of it each end with a save of their own), and **neither order data
-store writes a refund's row and its meta in one transaction**.
+**The seam, live-proven by spike S1-G (PASS, both order-storage modes):**
+the real, documented WooCommerce action `woocommerce_create_refund` fires
+on the fully-built, not-yet-saved refund object, before WooCommerce's own
+save and before its own restock call. A callback gated to fire only when a
+refunded line carries this plugin's kit-parent marker finds each linked
+child order item, computes its derived quantity, and attaches a correctly
+linked, zero-total child refund line to the refund object — persisted by
+WooCommerce's own save immediately after. When restocking is requested,
+this plugin calls WooCommerce's own exported restock function directly for
+the derived child quantities, since core's own restock call at that point
+only sees whatever line items the caller supplied, which never name the
+hidden child lines (ADR-0005) — this is not a reimplementation of
+restocking, it is the same public function core itself uses. Full
+evidence: `docs/spikes/s1-g-native-refund-line-linkage.md`.
 
-The guard at this plugin's own refund-orchestration boundary (see
-ADR-0003) therefore has three parts:
+Confirmed absent from this design: an order-wide transaction; a
+private/internal WooCommerce API; a custom refund table; a custom
+operation record; a broad item-hiding filter.
 
-1. **An atomic operation lock** — a database named lock plus a durable
-   `INSERT IGNORE` lease row with an expiry and an atomic
-   compare-and-swap takeover — providing real mutual exclusion between
-   concurrent attempts. The earlier design's `pending` order-meta record
-   was claimed to do this; it does not, and was live-disproven.
-2. **The operation id attached on the refund object's creating save**,
-   with that save bracketed in a transaction, so the refund and its
-   identity become durable in the same commit. There is no instant at
-   which a durable refund exists without a queryable identity.
-3. **The restock performed through core's own restock function inside a
-   second transaction** that also commits a per-refund restock-completion
-   marker — required because moving the identity marker earlier means
-   "identified" no longer implies "restocked", and as a side effect
-   making core's own non-atomic per-item restock bookkeeping
-   all-or-nothing.
+**Explicit non-goals:** this plugin does not expose or own a generic
+refund API, a webhook wrapper, a gateway-refund flow, a retry mechanism, or
+an exactly-once promise across crashes, concurrent requests, HTTP retries,
+gateways or webhooks. **A real, live-proven defect in bare WooCommerce
+core** — its refund-creation function has no idempotency guard of its own;
+a repeated call with an identical line-items payload double-restocks every
+component — is left as-is; this plugin does not fix it, and does not need
+to, since it owns no refund-creation or restocking step for a duplicate to
+corrupt beyond what bare core already risks for an ordinary product today.
+**Duplicate-refund prevention for any external integration is that
+integration's own responsibility**, using its own idempotency mechanism,
+enforced before it ever calls into WooCommerce's refund flow.
 
-Reconciliation against the real refund object runs unconditionally under
-the lock before any decision to create, and a `pending` record is never
-treated as either "safe to blindly retry" or "must reject".
-
-This supersedes the earlier claim that no transaction or outbox was needed
-here: the durable refund object is still the authoritative record, but
-making its identity and its restock durable *together with it* requires
-the two narrow transactions above. Both are deliberately narrow — the
-gateway refund call, the refunded-status transition and the notification
-emails all fall outside them. A periodic reconciliation sweep over
-`pending` records is part of the contract. See ADR-0003's two "Correction"
-notes, `docs/spikes/s1-e-refund-idempotency-recovery.md` and
-`docs/spikes/s1-f-refund-atomicity-and-locking.md`.
+**Rejected alternative, retained as evidence, not carried forward:** an
+earlier design (spikes S1-E, S1-F) built a custom refund idempotency/
+orchestration subsystem — an operation ledger, a `pending`→`completed`
+state machine, a two-layer atomic lock (a database named lock plus a
+durable `INSERT IGNORE` lease with a compare-and-swap takeover), the
+operation id attached on the refund object's creating save inside a
+transaction, and the restock performed through core's own restock function
+inside a second transaction that also committed a completion marker, plus
+a required-but-unbuilt periodic reconciliation sweep. All of it was real,
+working, live-proven engineering — and all of it was rejected by the
+product owner as disproportionate scope for a generic v1 plugin. See
+`docs/spikes/s1-e-refund-idempotency-recovery.md` and
+`docs/spikes/s1-f-refund-atomicity-and-locking.md` (each carrying a visible
+correction note) for the full design and why it does not fit.
 
 Pricing/VAT/multicurrency/shipping: a cart-totals hook forces every child
 line's price, weight, dimensions and shipping class to zero on the in-cart
@@ -246,3 +266,4 @@ on.
 | Built-in "on hold" status as the deferral state | Rejected | Re-entrant by construction — bound to core's own reduction trigger |
 | Waiting for core to re-fire a status transition to trigger recovery | Rejected | No future event is guaranteed once the reduced-stock flag is false |
 | **Architecture A in full** (custom reservation writer + journal + outbox + custom status) | Rejected in favour of B | Proven viable and safe on its own terms; an order of magnitude more custom code than Architecture B for an equivalent safety property |
+| **Custom refund idempotency/orchestration subsystem** (operation ledger, two-layer lock, transactions around refund creation/restocking, reconciliation sweep — S1-E/S1-F) | Rejected by product-owner decision | Proven to work live, but disproportionate scope for a generic v1 plugin; replaced by the native-refund-only scope, proven sufficient by S1-G |
