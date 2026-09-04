@@ -66,19 +66,41 @@ Each real child order/cart line carries:
 | `_ucb_snapshot_version` | the parent-line snapshot schema version this child was created under |
 | `_ucb_position` | stable ordering for Contents-line rendering |
 
-### Refund-operation idempotency guard (new, closes a real WooCommerce
-core defect)
+### Refund-operation idempotency guard (closes a real WooCommerce core
+defect; corrected in S1-E after a review finding — see "Corrections" below)
 
-Order meta `_ucb_refund_ops` records applied refund operation ids. An
+Order meta `_ucb_refund_ops` is a `pending`→`completed` state machine, not
+a single write-then-done flag, keyed by a refund operation id (an
 operation id is derived from a stable hash of the order item, refund, and
-component identity (so that a genuinely different, second partial refund
+component identity, so that a genuinely different, second partial refund
 produces a different id, while a retried delivery of the *same* refund
-produces the *same* id). The wrapper checks this record **before** calling
-the core refund-creation function and rejects an already-applied operation
-id with no stock change, while still allowing a genuinely different
-operation to proceed. No transaction or outbox is needed for this guard,
-because the core refund object itself becomes the durable record once the
-call succeeds.
+produces the *same* id). A second meta key, `_ucb_refund_op_id`, is
+written as meta on the **real WooCommerce refund object itself** once it
+is created.
+
+1. A `pending` record for the operation id is written **before** calling
+   the core refund-creation function — required to stop two truly
+   concurrent attempts from both proceeding.
+2. The core function is called, with the operation id embedded as meta on
+   the resulting refund object.
+3. On success, the local record is promoted to `completed`, referencing
+   the real refund id.
+4. **Only `completed` rejects a retry as an exact duplicate, with no
+   stock change.** A `pending` record found on a later attempt (retry,
+   recovery sweep, or a lost race) triggers reconciliation instead of
+   automatic rejection: query the order's real refunds for one carrying
+   this operation id in its own meta. Found → the earlier call actually
+   succeeded before whatever interrupted it; mark `completed` now,
+   idempotently, with no new refund and no double-restock. Not found →
+   the earlier attempt never durably completed; it is safe, and required,
+   to retry the real refund call. A retry that itself fails leaves the
+   record `pending`, never `completed`, so a subsequently corrected retry
+   remains possible.
+
+No transaction or outbox is needed for this guard, because the real
+refund object itself becomes the durable, authoritative reconciliation
+target once it exists — the state machine's job is only to find it
+reliably, not to be the sole source of truth.
 
 ### Presentation contract
 
@@ -116,6 +138,23 @@ call succeeds.
   pattern itself is sound, even though its broader application (a whole
   journal/outbox subsystem) was not adopted.
 
+> **Correction, found by review, then closed by live execution.** The
+> refund-operation guard first documented here recorded a single
+> write-before-call "applied" flag, not a state machine: the operation id
+> was marked applied as soon as it was written, before the core refund
+> call was even attempted. This repeats the intent-then-mutate ordering
+> already rejected elsewhere in this plan for stock mutation — an
+> interruption (crash, or a genuine core-call failure) between writing the
+> flag and the refund actually completing would leave the flag set with no
+> real refund having happened, permanently blocking a legitimate retry. A
+> follow-up spike (S1-E) reproduced this exact window live and closed it
+> with the `pending`→`completed` state machine and refund-level
+> `_ucb_refund_op_id` reconciliation documented above — this ADR's
+> "Decision" section already reflects the corrected design; this note
+> records that the design changed, and why, rather than silently
+> rewriting the original text out of history. See
+> `docs/spikes/s1-e-refund-idempotency-recovery.md`.
+
 ## Rejected alternatives
 
 - **Deriving historical composition from the live product definition.**
@@ -128,6 +167,11 @@ call succeeds.
   expansion model requires every component to collapse onto one synthetic
   `order_item_id`, which was proven to break a fulfillment plugin's
   own change-detection diff (four components summing against a live one).
+- **A single write-before-call "applied" flag for the refund-operation
+  guard** (the original version of this ADR). Rejected — found by review
+  to have an unrecoverable failure window (see "Correction" note above);
+  replaced by the `pending`→`completed` state machine reconciled against
+  the real refund object's own meta.
 - **Observing WooCommerce's "can restock refunded items" filter** for the
   refund-idempotency side effect. Withdrawn — that filter runs only on the
   restock code path and would not fire for a kit's own (unmanaged) parent

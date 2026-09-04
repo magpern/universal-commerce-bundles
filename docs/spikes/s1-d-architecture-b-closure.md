@@ -504,6 +504,55 @@ The repeated identical operation id was correctly rejected with no stock
 change; a genuinely different, distinct refund (op_id-2, for the second
 kit) was still correctly allowed and applied.
 
+> **Correction, found by review after this spike closed, then closed by
+> live execution in a follow-up spike (S1-E) — not a silent rewrite.**
+>
+> **What this spike's fix actually was:** the wrapper above wrote the
+> operation id to order meta as "applied" **before** calling the core
+> refund function, and rejected any later call carrying the same
+> operation id outright, purely on the strength of that order-meta record
+> — this spike's own proof covered only (a) successful execution and (b)
+> an exact duplicate retry *after* success.
+>
+> **Why that was wrong:** this is the identical intent-then-mutate
+> ordering already rejected elsewhere in this plan for stock mutation
+> (C16, reconfirmed live for stock by S1-B's crash-injection test). If the
+> process were interrupted, or the core refund call itself genuinely
+> failed, in the window *after* the operation-id record was written but
+> *before* the real refund durably existed, a later legitimate retry would
+> see the record already marked "applied" and be rejected forever — even
+> though no refund or restock had actually happened. This spike never
+> tested that window.
+>
+> **The fix, live-proven in S1-E:** the single flag was replaced with a
+> `pending`→`completed` state machine. A `pending` record is still
+> written before the core call (still needed to stop two truly concurrent
+> attempts), but it no longer suppresses anything by itself. On success,
+> the operation id is embedded as meta on the **real refund object**
+> itself, and only then is the local record promoted to `completed` — the
+> one state that rejects an exact duplicate. A `pending` record found
+> later is reconciled by querying the order's real refunds for one
+> carrying this operation id in its own meta, rather than rejected
+> outright: found → mark `completed`, no new refund; not found → safe,
+> and required, to retry.
+>
+> Three failure-injection tests, each executed against a fresh disposable
+> WordPress/WooCommerce/MariaDB stack, close this: an interruption between
+> the `pending` write and the core call (recovery must then refund
+> successfully, not be blocked); a genuine core-call failure, e.g. an
+> invalid amount (a corrected retry must then succeed); and — the exact
+> gap this spike's proof left open — a real refund succeeding followed by
+> an interruption before local completion is recorded (a later retry must
+> reconcile against the real, already-existing refund, marking it
+> `completed` with **no** second refund and **no** double-restock). Both
+> of this spike's original properties (a genuinely different operation id
+> still proceeds; an exact duplicate after `completed` is still rejected)
+> were re-confirmed live and still hold. See
+> `docs/spikes/s1-e-refund-idempotency-recovery.md` for the full evidence,
+> and `docs/adr/0003-versioned-cart-order-snapshot-contract.md` for the
+> corrected contract (new `_ucb_refund_op_id` refund-level meta key, and
+> the `_ucb_refund_ops` state-machine semantics).
+
 ---
 
 ### 2.8 Item 8 — Fulfillment parent-skip consistency: PASS

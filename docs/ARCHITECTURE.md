@@ -390,11 +390,32 @@ item-stripping logic already registered on the REST-level filter.
 this plugin:** the core refund-creation function has no idempotency guard
 of its own — a live test proved a repeated call with an identical
 line-items payload (simulating a retried webhook or accidental
-double-submit) double-restocks every component. Closed with a small
-operation-id-guarded wrapper recording applied refund operation ids as
-order meta, checked before calling the core refund function — a narrow
-reuse of the operation-id idempotency pattern Architecture A already
-established, applied only at this one orchestration boundary.
+double-submit) double-restocks every component. Closed with a
+`pending`→`completed` state-machine wrapper: an order-meta record is
+written `pending` before calling the core refund function, and only
+promoted to `completed` — the state that actually suppresses a retry —
+once a real refund object is confirmed to exist, with `op_id` embedded as
+meta on that real refund object itself so a later attempt can reconcile
+against it instead of trusting the local record alone. A narrow reuse of
+the operation-id idempotency pattern Architecture A already established,
+applied only at this one orchestration boundary.
+
+> **Correction, found by review, then closed by live execution — not
+> merely a caveat.** An earlier version of this fix recorded a single
+> write-then-done flag (write the operation id as "applied" **before**
+> calling the core refund function, reject any repeat outright). This is
+> the same intent-then-mutate ordering already rejected elsewhere in this
+> document for stock mutation (see "Crash safety" below): if the process
+> is interrupted, or the core call itself fails, in the window after the
+> flag is written but before the real refund exists, a later retry saw the
+> flag already set and was permanently blocked from a refund that never
+> actually happened. A dedicated spike (S1-E) reproduced this exact
+> window live — a real refund succeeding, then a simulated interruption
+> before the local record was updated — and proved the corrected
+> `pending`→`completed`-with-reconciliation design above resolves it: the
+> retry finds the real refund by its own `op_id` meta, marks the local
+> record `completed`, and creates no second refund. See
+> `docs/spikes/s1-e-refund-idempotency-recovery.md`.
 
 **Stated limitations, carried forward rather than hidden:** a shipping-cost
 formula keyed on cart-line *quantity* still double-counts, since children
@@ -439,6 +460,7 @@ visible text in a given theme/config.
 | C19 | Restoration suppression: remove the core callback, re-add it after the dispatch completes (single-callback `try/finally`) | Wrong, live-disproven (V12). Corrected to the two-part mechanism described in V12 |
 | C20 | The re-entrancy hazard for a controlled deferral state needs a guard (flag, dedup, deferred transition) | Superseded, not merely addressed. A dedicated custom order status removes the hazard by construction — core binds its stock triggers only to literal built-in status names |
 | C21 | Architecture A is the design to implement | Superseded by the decision recorded as V13. Architecture B was proven to delegate reservation/reduction/restoration to WooCommerce core unmodified, including with the plugin fully inactive after checkout — eliminating the entire custom stock-transaction/journal/outbox/recovery/restoration-suppression subsystem. Architecture A's spikes (S1-A/S1-B, V12) remain correct and are retained as rejected-alternative evidence |
+| C22 | The refund-idempotency guard (S1-D) is a single write-before-call "applied" flag | Wrong — found by review to repeat the intent-then-mutate ordering already rejected for stock mutation (C16/V10/S1-B): an interruption between writing the flag and the core call succeeding could permanently block a refund that never happened. Corrected in S1-E to a `pending`→`completed` state machine reconciled against the real refund object's own meta; live-proven for all three interruption windows (before the core call, a genuine core-call failure, and after the core call succeeds but before local completion is recorded) |
 
 ---
 
@@ -675,7 +697,7 @@ decision.
 | Multicurrency | (no leak — S1-C's earlier "not obtained" result was a command-line bootstrap-timing artifact) | no fix needed; proven live via real HTTP+cookie flow: parent converts correctly, children stay exactly zero, persists through a fresh-process session reload |
 | Coupons | a product-restricted coupon — including a **free-shipping** coupon — validated eligible off the hidden child alone | a real, documented core filter for coupon-item validation |
 | Analytics | units-sold and (via allocated shipping) gross-revenue figures were non-zero for hidden children, though net revenue was correctly zero | a scope-flag order-items filter, bracketed around the real recurring Analytics batch action |
-| Refunds | a bare core refund-creation call has no idempotency guard — a repeated identical call double-restocks | an operation-id-guarded order-meta wrapper, checked before calling the core refund function |
+| Refunds | a bare core refund-creation call has no idempotency guard — a repeated identical call double-restocks | a `pending`→`completed` operation-id state machine, reconciled against the real refund object's own meta rather than a single write-before-call flag (corrected in S1-E after a review finding — see "Corrections to earlier drafts") |
 | Fulfillment parent-skip | unmodified fulfillment code ingests the non-pickable parent as a picking row | a one-line guard in the fulfillment plugin's order-source class, live-proven with the guard applied, with the change detector re-run, and with the bundling plugin fully inactive |
 
 Every fix was proven closed for the leak case while a genuine standalone
@@ -909,12 +931,25 @@ correctly left untouched.
 core refund-creation function has no idempotency guard of its own — a
 repeated call with an identical line-items payload (a retried webhook, an
 accidental double-submit) double-restocks every component, live-proven.
-**Fix, live-proven:** order-item meta records applied refund operation ids,
-checked and written before calling the core refund function — a narrow
-reuse of the operation-id idempotency pattern from Architecture A's
-rejected journal design, applied only at this one orchestration boundary;
-no transaction or outbox needed, since the core refund function itself
-becomes the durable record once it succeeds.
+**Fix, live-proven, corrected after a review finding (S1-E):** order meta
+holds a `pending`→`completed` state machine per operation id, not a
+single write-then-done flag. A `pending` record is written **before**
+calling the core refund function (needed only to stop two truly
+concurrent attempts from both proceeding); on success the operation id is
+embedded as meta on the **real refund object itself**, and only then is
+the local record promoted to `completed` — the one state that suppresses
+a retry as an exact duplicate. A `pending` record found on a later
+attempt (retry, recovery sweep, or a lost race) is reconciled by querying
+the order's real refunds for one carrying this operation id in its own
+meta, never rejected outright: found → mark `completed`, no new refund;
+not found → the earlier attempt never durably completed, safe and
+required to retry the real call. This closes a crash-safety gap the
+original single-flag version left open — proven live in S1-E by
+interrupting a real, successful refund call before its local record was
+updated, and confirming the corrected design reconciles rather than
+permanently blocking. No transaction or outbox is needed beyond this,
+since the core refund object itself becomes the durable record once it
+exists — reconciliation only needs to be able to find it.
 
 ### Partial-failure handling — fail safe
 
@@ -987,7 +1022,8 @@ A's single-line design):**
 | Component marker | marks the line as a hidden kit-component child (the load-bearing exclusion key consumed by ADR-0007's cross-cutting contract) |
 | Snapshot version | the snapshot schema version this child was created under |
 | Position | stable ordering for Contents-line rendering |
-| Refund-operations record (order meta) | applied refund operation ids, checked before every refund call — closes a real core idempotency gap |
+| Refund-operations record (order meta) | a `pending`→`completed` state machine keyed by refund operation id, checked/written before every refund call — closes a real core idempotency gap, corrected in S1-E to a state machine (rather than a single applied-flag) for crash safety |
+| Refund-operation id (meta on the real refund object, new — S1-E) | the same operation id, embedded on the actual WooCommerce refund object once created, so a later attempt can reconcile the order-meta record against reality instead of trusting the record alone |
 
 Contract rules:
 - **Merge rule:** within one kit line, a component listed twice in
@@ -1468,6 +1504,14 @@ implementation → validation → closure`.
   reject the replay with no stock change, while still allowing a
   genuinely different refund (different operation id, e.g. for the second
   kit) to proceed.
+- **Crash-safety regression guard (S1-E, corrects a gap S1-D's original
+  proof did not cover):** an interruption between writing the `pending`
+  record and calling the core refund function, a genuine core-call
+  failure, and an interruption *after* a real refund succeeds but before
+  local completion is recorded, must each recover correctly on a later
+  attempt — never a permanent block on a refund that never happened, and
+  never a second refund/double-restock for one that already did. See
+  `docs/spikes/s1-e-refund-idempotency-recovery.md`.
 
 **Partial-failure handling**
 - Partial component-reduction failure (a residual risk even with core

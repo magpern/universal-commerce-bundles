@@ -71,8 +71,16 @@ plugin's, but the restock *execution* itself is core's own. A real defect
 was found in bare WooCommerce core during this work: its refund-creation
 function has no idempotency guard of its own, and a repeated call with an
 identical line-items payload double-restocks every component. This is
-closed by an operation-id-guarded order-meta wrapper (see ADR-0003),
-checked before calling the core refund function.
+closed by a `pending`→`completed` operation-id state machine at this
+plugin's own refund-orchestration boundary (see ADR-0003): a `pending`
+order-meta record is written before calling the core refund function and,
+on success, the operation id is embedded as meta on the real refund object
+itself — which becomes the durable reconciliation target — with the local
+record promoted to `completed` only once that real refund is confirmed to
+exist. A `pending` record found on a later attempt is reconciled against
+the real refund's own meta, never rejected outright, closing a
+crash-safety gap an earlier single-flag version of this guard left open
+(see ADR-0003's "Correction" note and `docs/spikes/s1-e-refund-idempotency-recovery.md`).
 
 Pricing/VAT/multicurrency/shipping: a cart-totals hook forces every child
 line's price, weight, dimensions and shipping class to zero on the in-cart
