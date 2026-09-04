@@ -24,8 +24,10 @@ Thumbs.db
 
 # PHPUnit / testing
 .phpunit.result.cache
+.phpunit.cache/
 /tests/coverage/
 
 # Composer
 composer.phar
-composer.lock
+# composer.lock IS committed deliberately: pinned exact dependency versions,
+# consistent with this project's "no :latest, pin exact releases" policy.
