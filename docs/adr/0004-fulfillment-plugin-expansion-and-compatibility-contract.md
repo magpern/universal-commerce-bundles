@@ -2,8 +2,10 @@
 
 ## Status
 
-Accepted — "one-line skip," replacing the originally planned "expansion"
-design, following the Architecture A → B decision (ADR-0002).
+Ready for final review — accepted upon merge of the documentation-freeze
+pull request, not before. The decision recorded below is "one-line skip,"
+replacing the originally planned "expansion" design, following the
+Architecture A → B decision (ADR-0002).
 
 ## Context
 

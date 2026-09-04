@@ -2,8 +2,9 @@
 
 ## Status
 
-Accepted — new ADR, introduced by spike S1-D's findings, not present in the
-original six-ADR register.
+Ready for final review — accepted upon merge of the documentation-freeze
+pull request, not before. New ADR, introduced by spike S1-D's findings, not
+present in the original six-ADR register.
 
 ## Context
 

@@ -6,12 +6,14 @@ sold as one SKU, picked to order.
 
 ## Status
 
-**Documentation frozen, pre-implementation.** This repository currently
-contains only the frozen architecture plan, seven Architecture Decision
-Records, and the live-executed spike evidence that led to them. No plugin
-code has been written yet. Nothing in this repository authorizes
-implementation on its own — see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
-for the governance workflow this project follows.
+**Documentation-only, pre-implementation. This documentation becomes
+accepted/frozen upon merge of the documentation-freeze pull request, not
+before.** This repository currently contains only the architecture plan
+(ready for final review), seven Architecture Decision Records, and the
+live-executed spike evidence that led to them. No plugin code has been
+written yet. Nothing in this repository authorizes implementation on its
+own — see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the governance
+workflow this project follows.
 
 ## What this is
 
@@ -35,7 +37,8 @@ alternative, Architecture B as the accepted target.
   contracts, and the acceptance-test coverage.
 - [`docs/adr/`](docs/adr) — the seven Architecture Decision Records, one per
   file, each in standard ADR format (Context / Decision / Consequences /
-  Rejected alternatives), status **Accepted**.
+  Rejected alternatives), status **ready for final review — accepted upon
+  merge of the documentation-freeze pull request**.
 - [`docs/spikes/`](docs/spikes) — the live-executed spike evidence: test
   methodology, exact commands, captured output, and verdicts for every design
   question the architecture depended on.

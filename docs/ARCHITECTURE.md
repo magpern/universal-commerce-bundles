@@ -36,10 +36,11 @@ locking or retry idempotency — was proven live by spike S1-G (PASS); see
 [`docs/spikes/s1-g-native-refund-line-linkage.md`](spikes/s1-g-native-refund-line-linkage.md)
 and the M1 Refunds section below.
 
-Every ADR in `docs/adr/` reflects Architecture B and is Accepted, including
-ADR-0002's refund clause and ADR-0003, at the narrow native-refund-only
-scope described above. **No implementation authorization is granted by this
-document** — none of the milestones described below (M0/M1/the
+Every ADR in `docs/adr/` reflects Architecture B and is ready for final
+review — becoming accepted upon merge of this documentation-freeze pull
+request, not before — including ADR-0002's refund clause and ADR-0003, at
+the narrow native-refund-only scope described above. **No implementation
+authorization is granted by this document** — none of the milestones described below (M0/M1/the
 fulfillment-plugin milestone/the promotions-plugin milestone/the host
 safety guard) are implemented, and this repository's code tree is empty.
 Full spike evidence is preserved in [`docs/spikes/`](spikes/).
@@ -844,15 +845,19 @@ than four buried point-fixes — see ADR-0007.
 
 ## ADR register
 
+All statuses below describe the state each ADR reaches **upon merge of
+this documentation-freeze pull request, not before** — see the governance
+note above.
+
 | ADR | Subject | Status |
 |---|---|---|
-| ADR-0001 | Simple-product representation and static pricing | Accepted at freeze — unaffected by the Architecture A→B decision |
-| ADR-0002 | Component availability, reservation, reduction and restoration lifecycle | Accepted for the stock lifecycle — Architecture B (V13). Reservation/reduction/restoration delegated to WooCommerce core, unmodified. Architecture A (S1-A/S1-B, V12) is superseded and retained only as rejected-alternative evidence. **Its refund clause is accepted at the narrow native-refund-line-linkage scope (V17), proven by spike S1-G (PASS).** The custom refund idempotency/orchestration subsystem S1-E/S1-F explored is a **rejected alternative by product-owner decision (C25)**, not carried forward |
-| ADR-0003 | Versioned cart/order snapshot contract | Accepted — the kit snapshot and per-child meta contract (S1-C/S1-D) were settled and never in question. The refund-*operation* contract this ADR briefly grew (an operation ledger and refund-object operation-id meta, S1-E/S1-F) is **withdrawn by product-owner decision (V17/C25)** — refunds carry no plugin-owned operation contract in v1; the derived child-refund-line linkage lives in ADR-0002's refund clause instead, at the scope S1-G proved |
-| ADR-0004 | Fulfillment-plugin expansion and compatibility contract | Accepted at freeze — "one-line skip," not expansion (S1-C/S1-D). The fulfillment plugin ignores any kit-marked line; every other line, including components, is ingested unmodified |
-| ADR-0005 | Hidden-component visibility and direct-URL policy | Accepted at freeze — unaffected by the architecture decision |
-| ADR-0006 | Cross-plugin rollout / readiness gate, and inactive-plugin safety | Accepted at freeze, narrowed — purchasability guard/capability handshake/deactivation-lock policy retained unchanged; the custom-status ownership term and background-stock-deferral responsibility are removed — proven unnecessary for stock-lifecycle correctness under Architecture B |
-| ADR-0007 | Cross-cutting cart/order-line exclusion contract (promotions, coupons, shipping, analytics) | New, accepted at freeze — a hidden kit-component line must never be treated as a genuine customer selection by any cart/order/coupon/shipping/analytics consumer, native or third-party |
+| ADR-0001 | Simple-product representation and static pricing | Ready for acceptance upon merge — unaffected by the Architecture A→B decision |
+| ADR-0002 | Component availability, reservation, reduction and restoration lifecycle | Ready for acceptance upon merge, for the stock lifecycle — Architecture B (V13). Reservation/reduction/restoration delegated to WooCommerce core, unmodified. Architecture A (S1-A/S1-B, V12) is superseded and retained only as rejected-alternative evidence. **Its refund clause is ready for acceptance at the narrow native-refund-line-linkage scope (V17), proven by spike S1-G (PASS).** The custom refund idempotency/orchestration subsystem S1-E/S1-F explored is a **rejected alternative by product-owner decision (C25)**, not carried forward |
+| ADR-0003 | Versioned cart/order snapshot contract | Ready for acceptance upon merge — the kit snapshot and per-child meta contract (S1-C/S1-D) were settled and never in question. The refund-*operation* contract this ADR briefly grew (an operation ledger and refund-object operation-id meta, S1-E/S1-F) is **withdrawn by product-owner decision (V17/C25)** — refunds carry no plugin-owned operation contract in v1; the derived child-refund-line linkage lives in ADR-0002's refund clause instead, at the scope S1-G proved |
+| ADR-0004 | Fulfillment-plugin expansion and compatibility contract | Ready for acceptance upon merge — "one-line skip," not expansion (S1-C/S1-D). The fulfillment plugin ignores any kit-marked line; every other line, including components, is ingested unmodified |
+| ADR-0005 | Hidden-component visibility and direct-URL policy | Ready for acceptance upon merge — unaffected by the architecture decision |
+| ADR-0006 | Cross-plugin rollout / readiness gate, and inactive-plugin safety | Ready for acceptance upon merge, narrowed — purchasability guard/capability handshake/deactivation-lock policy retained unchanged; the custom-status ownership term and background-stock-deferral responsibility are removed — proven unnecessary for stock-lifecycle correctness under Architecture B |
+| ADR-0007 | Cross-cutting cart/order-line exclusion contract (promotions, coupons, shipping, analytics) | New; ready for acceptance upon merge — a hidden kit-component line must never be treated as a genuine customer selection by any cart/order/coupon/shipping/analytics consumer, native or third-party |
 
 Full ADR text lives in [`docs/adr/`](adr/).
 
@@ -1044,14 +1049,27 @@ deployment configures a quantity-based rate.
 
 ### Refunds — native flow only, derived component-line linkage (ADR-0002, ADR-0003, hook-ordering corrected — see `docs/spikes/s1-g-native-refund-line-linkage.md`)
 
-**v1 scope, stated precisely, per product-owner decision:** this plugin
-supports only WooCommerce's normal, native refund flow. It does not create,
-persist, retry or orchestrate refunds; it owns no database transaction, no
-lock, no ledger and no reconciliation sweep for them. Its entire refund
-responsibility is: when a kit-parent order line is refunded through that
-native flow, add the correctly linked component-child refund lines at the
-correct derived quantity. Everything else about a refund — creating and
-persisting the refund row, optional restocking, refund totals, admin
+**v1 scope, stated precisely, per product-owner decision:** UCB does not
+own refund creation, refund persistence, gateway refunds, retries,
+duplicate-submission handling, concurrency control, transactions, journals,
+locks, or recovery sweeps. UCB does add derived component refund lines
+before the refund is saved (the pre-save `woocommerce_create_refund` hook).
+After the refund is durable, UCB invokes WooCommerce's exported restock
+function for those persisted derived child lines, only when the caller
+requested restocking (the post-save `woocommerce_refund_created` hook). The
+residual crash window (refund saved, restock not yet run) is intentionally
+no better and no worse than WooCommerce's own native refund/restock flow
+for an ordinary product — it is surfaced for ordinary operational
+correction, not solved by a custom protocol.
+
+Restated in flow terms: this plugin supports only WooCommerce's normal,
+native refund flow. Its entire refund responsibility is: when a kit-parent
+order line is refunded through that native flow, add the correctly linked
+component-child refund lines at the correct derived quantity, then, once
+the refund is durable and only if restocking was requested, trigger
+WooCommerce's own restock for those derived lines. Everything else about a
+refund — creating and persisting the refund row, optional restocking of the
+line items the caller actually supplied, refund totals, admin
 nonce/request handling, payment-gateway refund execution, and API/webhook
 retry semantics — remains WooCommerce's, unmodified.
 
@@ -1610,17 +1628,19 @@ implementation → validation → closure`.
   closure.
 - The fulfillment-plugin and promotions-plugin milestones each have their
   own plan, branch, PR, validation and closure in their own repository.
-- ADR-0001 through ADR-0007 are authored, reviewed, and **accepted at this
-  documentation freeze**. ADR-0002's precondition was two full rounds of
+- ADR-0001 through ADR-0007 are authored and reviewed, and **become
+  accepted upon merge of this documentation-freeze pull request, not
+  before**. ADR-0002's precondition was two full rounds of
   live-executed spike evidence: S1-A/S1-B (Architecture A, V12, both PASS
   on their own terms, retained as rejected-alternative evidence) and
   S1-C/S1-D (Architecture B, V13, both PASS, selected). ADR-0004 and
   ADR-0006 reflect Architecture B's narrower fulfillment/host-guard
   contracts. ADR-0007 is new, covering the cross-cutting exclusion contract
   S1-D's four closed leaks share.
-- This document is frozen by this documentation-only freeze. Any future
-  substantive change to an accepted ADR requires a superseding ADR, per the
-  immutability rule in M0's identity section.
+- This document becomes frozen upon merge of this documentation-only
+  freeze pull request, not before. Any future substantive change to an
+  accepted ADR requires a superseding ADR, per the immutability rule in
+  M0's identity section.
 - **No implementation authorization is granted by this freeze.** M0, M1,
   the fulfillment-plugin milestone, and the promotions-plugin milestone
   each still require their own separate implementation authorization before
@@ -1859,12 +1879,12 @@ implementation → validation → closure`.
    required items closed with real, live-proven fixes (promotions,
    coupons, shipping, cart-block server-render, multicurrency, analytics,
    refunds, fulfillment parent-skip).
-4. **ADR-0006 — accepted at freeze, narrowed.** Purchasability
+4. **ADR-0006 — ready for acceptance upon merge, narrowed.** Purchasability
    guard/capability handshake/deactivation-lock policy retained;
    custom problem-status ownership term removed (no longer load-bearing
    under Architecture B).
-5. **ADR-0007 — new, accepted at freeze.** Cross-cutting cart/order-line
-   exclusion contract; see the dedicated section above.
+5. **ADR-0007 — new; ready for acceptance upon merge.** Cross-cutting
+   cart/order-line exclusion contract; see the dedicated section above.
 6. ~~S1-E/S1-F — custom refund idempotency/orchestration subsystem~~
    **RESOLVED BY DESCOPING, not by closing the reconciliation-sweep/
    transaction-scope questions S1-F raised (V16).** Both named windows

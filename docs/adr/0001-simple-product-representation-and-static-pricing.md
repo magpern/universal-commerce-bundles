@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted.
+Ready for final review — accepted upon merge of the documentation-freeze
+pull request, not before.
 
 ## Context
 

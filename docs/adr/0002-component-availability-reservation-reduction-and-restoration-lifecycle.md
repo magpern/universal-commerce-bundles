@@ -2,12 +2,13 @@
 
 ## Status
 
-Accepted — Architecture B, proven by live spikes S1-C and S1-D. Architecture
-A (spikes S1-A/S1-B) was independently proven viable on its own terms and is
-retained below as the record of a rejected alternative, not as
-implementation work.
+Ready for final review — accepted upon merge of the documentation-freeze
+pull request, not before. The decision recorded below is Architecture B,
+proven by live spikes S1-C and S1-D. Architecture A (spikes S1-A/S1-B) was
+independently proven viable on its own terms and is retained below as the
+record of a rejected alternative, not as implementation work.
 
-**The refund clause is accepted at a narrow, native-refund-only scope,
+**The refund clause is ready for acceptance at a narrow, native-refund-only scope,
 proven by spike S1-G, with its hook-ordering corrected after an initial
 pass put a stock mutation in an unsafe pre-save hook (see the spike's
 correction section).** An earlier version of this clause described a
@@ -77,17 +78,29 @@ unavailable — was still correctly handled: core reduced, and later
 restored, the real component stock **with zero plugin code running at
 all**.
 
-**Refunds — native flow only.** This plugin supports only WooCommerce's
-normal, native refund flow. It does not create, persist, retry or
-orchestrate refunds, and owns no transaction, lock, ledger or
-reconciliation sweep for them. Its entire refund responsibility is: when a
-kit-parent order line is refunded through that native flow, add the
-correctly linked component-child refund lines at the derived quantity
-`child_refund_qty = (original_child_qty / original_parent_qty) ×
-parent_qty_refunded`. WooCommerce remains responsible for creating and
-persisting the refund, optional restocking, refund totals, admin
-nonce/request handling, payment-gateway refund execution, and API/webhook
-retry semantics.
+**Refunds — native flow only.** UCB does not own refund creation, refund
+persistence, gateway refunds, retries, duplicate-submission handling,
+concurrency control, transactions, journals, locks, or recovery sweeps.
+UCB does add derived component refund lines before the refund is saved
+(the pre-save `woocommerce_create_refund` hook). After the refund is
+durable, UCB invokes WooCommerce's exported restock function for those
+persisted derived child lines, only when the caller requested restocking
+(the post-save `woocommerce_refund_created` hook). The residual crash
+window (refund saved, restock not yet run) is intentionally no better and
+no worse than WooCommerce's own native refund/restock flow for an ordinary
+product — it is surfaced for ordinary operational correction, not solved
+by a custom protocol.
+
+This plugin supports only WooCommerce's normal, native refund flow. Its
+entire refund responsibility is: when a kit-parent order line is refunded
+through that native flow, add the correctly linked component-child refund
+lines at the derived quantity `child_refund_qty = (original_child_qty /
+original_parent_qty) × parent_qty_refunded`, then, once the refund is
+durable and only if restocking was requested, trigger WooCommerce's own
+restock for those derived lines. WooCommerce remains responsible for
+creating and persisting the refund, optional restocking of the line items
+the caller actually supplied, refund totals, admin nonce/request handling,
+payment-gateway refund execution, and API/webhook retry semantics.
 
 **The seam — two hooks, not one, live-proven by spike S1-G (PASS, both
 order-storage modes; the first pass put both responsibilities in a single
