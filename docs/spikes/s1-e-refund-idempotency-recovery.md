@@ -1,5 +1,62 @@
 # Spike S1-E — Refund-idempotency crash-safety correction
 
+> ## ⚠ SUPERSEDED IN PART BY SPIKE S1-F — read this correction first
+>
+> This document is preserved as written. Its verdict of PASS stood for the
+> five properties it actually tested, and those five properties still hold
+> under the corrected design. But a later review found **two real windows
+> this spike did not close**, and a follow-up spike
+> ([`s1-f-refund-atomicity-and-locking.md`](s1-f-refund-atomicity-and-locking.md))
+> reproduced both of them live and closed them. Two specific claims below
+> are now known to be **wrong**:
+>
+> **1. §3 step 2 and §7's `_ucb_refund_op_id` claim — the identity marker
+> was not durable when the refund was.** This spike wrote the operation id
+> onto the refund with a *separate* save made *after* the core refund call
+> had already returned — by which time the refund row, its line items and
+> the restock were all durable. A process killed in that interval leaves a
+> real refund and a real restock carrying **no identity at all**; recovery
+> then finds no marked refund, concludes "never completed", and creates a
+> **second** refund with a **second** restock. §5.3's test did not catch
+> this because it began from a refund that *already carried* the marker —
+> it proved reconciliation, never marker durability. Live-proven in S1-F
+> with a real process kill: two refund rows, twice the refunded amount, and
+> stock restocked twice.
+>
+> The obvious repair — hooking the core action documented as adjusting the
+> refund "before save" — does **not** work either. Verified against the
+> release source and confirmed by an injected kill: the core refund
+> function already persists the refund inside its two total-recalculation
+> helpers, each of which ends with a save of its own, *before* that action
+> fires. The identity has to be attached on the object-save action that
+> precedes the data store's `create()`, with that save bracketed in a
+> transaction.
+>
+> **2. §3 step 1's parenthetical — the `pending` record is not a
+> concurrency guard.** This spike stated the `pending` write is "what
+> prevents two truly concurrent attempts (a race, not a crash) from both
+> proceeding". That is false. It is ordinary order meta, read then written
+> with no atomic claim: two concurrent requests both read "absent", both
+> write `pending`, both find no marked refund, and both proceed.
+> Live-disproven in S1-F — **10 out of 10** iterations with two genuinely
+> concurrent OS processes produced two refunds and a double restock, and
+> **5 out of 5** with four processes produced four refunds and restocked a
+> component *above* the level it started at. This spike never tested
+> concurrency; the claim was asserted, not proven.
+>
+> S1-F also found a **third** window created by fixing the first: once the
+> identity marker lands *before* the restock, "identified" no longer
+> implies "restocked", so reconciliation that trusts the marker alone
+> silently loses the restock.
+>
+> The corrected contract is in
+> [`../adr/0003-versioned-cart-order-snapshot-contract.md`](../adr/0003-versioned-cart-order-snapshot-contract.md);
+> the evidence is in
+> [`s1-f-refund-atomicity-and-locking.md`](s1-f-refund-atomicity-and-locking.md).
+> Everything below is the original S1-E text, unedited.
+
+---
+
 **Scope:** close one specific design defect found by review in S1-D's
 refund-idempotency fix — an intent-then-mutate ordering that repeats the
 exact mistake already rejected for stock mutation (see the "Crash safety"

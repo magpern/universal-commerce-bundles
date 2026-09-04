@@ -67,20 +67,52 @@ all**.
 Refunds: restock remains opt-in via the real, documented
 `woocommerce_refund_created` action; the *linkage arithmetic*
 (`child_qty = (child_line_qty / kit_line_qty) × kit_qty_refunded`) is this
-plugin's, but the restock *execution* itself is core's own. A real defect
-was found in bare WooCommerce core during this work: its refund-creation
-function has no idempotency guard of its own, and a repeated call with an
-identical line-items payload double-restocks every component. This is
-closed by a `pending`→`completed` operation-id state machine at this
-plugin's own refund-orchestration boundary (see ADR-0003): a `pending`
-order-meta record is written before calling the core refund function and,
-on success, the operation id is embedded as meta on the real refund object
-itself — which becomes the durable reconciliation target — with the local
-record promoted to `completed` only once that real refund is confirmed to
-exist. A `pending` record found on a later attempt is reconciled against
-the real refund's own meta, never rejected outright, closing a
-crash-safety gap an earlier single-flag version of this guard left open
-(see ADR-0003's "Correction" note and `docs/spikes/s1-e-refund-idempotency-recovery.md`).
+plugin's, and the restock *execution* is still core's own restock function
+— but it is invoked by this plugin rather than by the core refund call, so
+that it can be made atomic with its own completion record (below).
+
+A real defect was found in bare WooCommerce core during this work: its
+refund-creation function has no idempotency guard of its own, and a
+repeated call with an identical line-items payload double-restocks every
+component. Two further core properties, verified by source read against
+the current release and then confirmed live, shape the guard: the refund
+is **already durably persisted before** the action that documents itself
+as firing "before save" (the two total-recalculation helpers called just
+ahead of it each end with a save of their own), and **neither order data
+store writes a refund's row and its meta in one transaction**.
+
+The guard at this plugin's own refund-orchestration boundary (see
+ADR-0003) therefore has three parts:
+
+1. **An atomic operation lock** — a database named lock plus a durable
+   `INSERT IGNORE` lease row with an expiry and an atomic
+   compare-and-swap takeover — providing real mutual exclusion between
+   concurrent attempts. The earlier design's `pending` order-meta record
+   was claimed to do this; it does not, and was live-disproven.
+2. **The operation id attached on the refund object's creating save**,
+   with that save bracketed in a transaction, so the refund and its
+   identity become durable in the same commit. There is no instant at
+   which a durable refund exists without a queryable identity.
+3. **The restock performed through core's own restock function inside a
+   second transaction** that also commits a per-refund restock-completion
+   marker — required because moving the identity marker earlier means
+   "identified" no longer implies "restocked", and as a side effect
+   making core's own non-atomic per-item restock bookkeeping
+   all-or-nothing.
+
+Reconciliation against the real refund object runs unconditionally under
+the lock before any decision to create, and a `pending` record is never
+treated as either "safe to blindly retry" or "must reject".
+
+This supersedes the earlier claim that no transaction or outbox was needed
+here: the durable refund object is still the authoritative record, but
+making its identity and its restock durable *together with it* requires
+the two narrow transactions above. Both are deliberately narrow — the
+gateway refund call, the refunded-status transition and the notification
+emails all fall outside them. A periodic reconciliation sweep over
+`pending` records is part of the contract. See ADR-0003's two "Correction"
+notes, `docs/spikes/s1-e-refund-idempotency-recovery.md` and
+`docs/spikes/s1-f-refund-atomicity-and-locking.md`.
 
 Pricing/VAT/multicurrency/shipping: a cart-totals hook forces every child
 line's price, weight, dimensions and shipping class to zero on the in-cart
