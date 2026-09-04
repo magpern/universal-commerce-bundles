@@ -1,0 +1,31 @@
+# Dependencies
+/vendor/
+/node_modules/
+
+# Build artifacts
+/build/
+/dist/
+*.zip
+
+# Environment / local config
+.env
+.env.local
+*.local.php
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Logs
+*.log
+
+# PHPUnit / testing
+.phpunit.result.cache
+/tests/coverage/
+
+# Composer
+composer.phar
+composer.lock
