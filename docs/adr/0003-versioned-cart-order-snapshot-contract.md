@@ -2,7 +2,26 @@
 
 ## Status
 
-Accepted.
+**Proposed — NOT accepted.** The snapshot and per-child line contract
+(`_ucb_kit`, `_ucb_parent_item_id`, `_ucb_component`, `_ucb_snapshot_version`,
+`_ucb_position`) is settled and proven. The **refund-operation portion**
+(`_ucb_refund_ops`, `_ucb_refund_op_id`) is not yet accepted:
+
+- Spike S1-F closed the two windows S1-E left open (identity durability, and the
+  absence of an atomic claim) with live evidence, including 59 concurrent
+  iterations against a control that fails.
+- It also established that a **periodic reconciliation sweep over `pending`
+  records is a design requirement, not an optional extra** — and that sweep was
+  neither built nor tested. Without it, a crash in a narrow window after the
+  refund is created but before its total is written leaves a durable refund
+  whose total reads as `-0`, repaired only if a retry with the same operation
+  ID happens to run.
+- The protocol also now brackets third-party hook code inside two database
+  transactions, which is in tension with the principle established elsewhere in
+  this design that arbitrary hooks must not run inside an open transaction.
+
+This ADR is accepted only once the sweep is specified and proven, and the
+transaction-scope question is decided.
 
 ## Context
 
