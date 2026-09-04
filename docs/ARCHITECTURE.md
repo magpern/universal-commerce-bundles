@@ -822,7 +822,7 @@ decision.
 | Multicurrency | (no leak — S1-C's earlier "not obtained" result was a command-line bootstrap-timing artifact) | no fix needed; proven live via real HTTP+cookie flow: parent converts correctly, children stay exactly zero, persists through a fresh-process session reload |
 | Coupons | a product-restricted coupon — including a **free-shipping** coupon — validated eligible off the hidden child alone | a real, documented core filter for coupon-item validation |
 | Analytics | units-sold and (via allocated shipping) gross-revenue figures were non-zero for hidden children, though net revenue was correctly zero | a scope-flag order-items filter, bracketed around the real recurring Analytics batch action |
-| Refunds | derived component refund lines must be linked and quantified correctly when a kit-parent line is refunded | `woocommerce_create_refund` (real, documented core action), live-proven by spike S1-G (PASS) — see the M1 Refunds section. **Not** a fix for bare core's own missing idempotency guard against a repeated identical refund call; that real core gap is left as-is by product-owner decision (V17) — not this plugin's to fix, and the operation-ledger/locking/transaction design this row once described was rejected (C25) |
+| Refunds | derived component refund lines must be linked and quantified correctly when a kit-parent line is refunded, and any restock must only ever happen once that refund is durable | `woocommerce_create_refund` for line-addition (pre-save) plus `woocommerce_refund_created` for restocking (post-save) — two real, documented core actions, live-proven by spike S1-G (PASS, corrected hook split) — see the M1 Refunds section. **Not** a fix for bare core's own missing idempotency guard against a repeated identical refund call; that real core gap is left as-is by product-owner decision (V17) — not this plugin's to fix, and the operation-ledger/locking/transaction design this row once described was rejected (C25) |
 | Fulfillment parent-skip | unmodified fulfillment code ingests the non-pickable parent as a picking row | a one-line guard in the fulfillment plugin's order-source class, live-proven with the guard applied, with the change detector re-run, and with the bundling plugin fully inactive |
 
 Every fix was proven closed for the leak case while a genuine standalone
@@ -1042,7 +1042,7 @@ by design; closing that specific configuration would need a shipping-
 package content filter, not implemented — relevant only if a real
 deployment configures a quantity-based rate.
 
-### Refunds — native flow only, derived component-line linkage (ADR-0002, ADR-0003)
+### Refunds — native flow only, derived component-line linkage (ADR-0002, ADR-0003, hook-ordering corrected — see `docs/spikes/s1-g-native-refund-line-linkage.md`)
 
 **v1 scope, stated precisely, per product-owner decision:** this plugin
 supports only WooCommerce's normal, native refund flow. It does not create,
@@ -1061,34 +1061,71 @@ retry semantics — remains WooCommerce's, unmodified.
 child_refund_qty = (original_child_qty / original_parent_qty) × parent_qty_refunded
 ```
 
-**The seam, live-proven by spike S1-G (PASS, both legacy and custom
-order-storage modes):** a real, documented WooCommerce action —
-`woocommerce_create_refund` — fires on the fully-built, not-yet-saved
-refund object, immediately before core's own save and before core's own
-restock call. A callback gated to only fire when a refunded line carries
-this plugin's kit-parent marker (an ordinary product's refund is untouched
-— live-confirmed) finds each real, linked child order item, computes its
-derived quantity, and attaches a correctly linked, zero-total child refund
-line to the in-memory refund object — persisted by WooCommerce's own save
-immediately after, not by any separate write from this plugin. When
-restocking is requested, this plugin calls WooCommerce's own exported
-restock function for exactly the derived child quantities — core's own
-restock call at that point only sees whatever line items the admin UI or
-REST caller supplied, which never name the hidden child lines (ADR-0005),
-so this direct call is how core's own restock function ends up covering
-them; it is not a reimplementation of restocking. Full mechanism, both
-storage modes, and all required live-proven cases (full refund with
-restock; partial refund of one kit from an order holding two distinct
-kits, with exact derived quantities and the other kit's components left
-untouched; refund with restocking disabled leaving stock unchanged while
-still creating correct linked child lines; an ordinary non-kit refund
-entirely unaffected) are in
+**The seam — two hooks, not one.** An earlier version of this design put
+both line-addition and restocking in a single pre-save hook; review found
+that restocking real, shared component stock before the refund that
+justifies the mutation is durable is unsafe (a crash or a failed save in
+between would leave stock adjusted with no refund record to justify it).
+The corrected, live-proven design (PASS, both legacy and custom
+order-storage modes — full detail and evidence in
+`docs/spikes/s1-g-native-refund-line-linkage.md`, including its correction
+section) splits the two responsibilities across two real, documented
+WooCommerce actions:
+
+1. A refund-creation action fires on the fully-built, **not-yet-saved**
+   refund object, before WooCommerce's own save and before WooCommerce's
+   own restock call. A callback gated to only fire when a refunded line
+   carries this plugin's kit-parent marker (an ordinary product's refund is
+   untouched — live-confirmed) finds each real, linked child order item,
+   computes its derived quantity, and attaches a correctly linked,
+   zero-total child refund line — tagged with a private marker so it can be
+   found again once persisted — to the in-memory refund object, persisted
+   by WooCommerce's own save immediately after, not by any separate write
+   from this plugin. **No stock mutation happens here.**
+2. A **second** action, which fires only after that save has already
+   succeeded, after WooCommerce's own restock call for whatever line items
+   the caller supplied, and after the order's refunded-status update: only
+   if restocking was requested, this plugin re-reads the now-persisted
+   refund's own line items, keeps the ones it tagged in step 1, and calls
+   WooCommerce's own exported restock function for exactly those derived
+   quantities. WooCommerce's own restock call at step 1's point in the flow
+   only ever sees whatever line items the admin UI or REST caller supplied,
+   which never name the hidden child lines (ADR-0005), so this second,
+   later call is how WooCommerce's own restock function ends up covering
+   them; it is not a reimplementation of restocking, and it only ever runs
+   once the refund it is restocking for is already durable.
+
+Full mechanism, both storage modes, and all required live-proven cases
+(full refund with restock; partial refund of one kit from an order holding
+two distinct kits, with exact derived quantities and the other kit's
+components left untouched; refund with restocking disabled leaving stock
+unchanged while still creating correct linked child lines; an ordinary
+non-kit refund entirely unaffected) — **plus a live ordering assertion
+(stock is unchanged immediately after the refund's save succeeds, and
+changes only once the second, post-save action has run) and a real
+crash-window test (a process killed between the refund becoming durable
+and the post-save restock action completing leaves the refund correct and
+unrestocked — reproduced identically, with no plugin code loaded at all,
+against bare WooCommerce's own restock call, proving this is an accepted,
+pre-existing native limitation and not a new one)** — are in
 `docs/spikes/s1-g-native-refund-line-linkage.md`.
 
-**Confirmed absent from this design:** no order-wide transaction; no
-private/internal WooCommerce API (every call used is public, and
-`woocommerce_create_refund` itself is a documented core hook); no custom
+**Confirmed absent from this design, in either hook:** no order-wide
+transaction; no private/internal WooCommerce API (every call used is
+public, and both actions used are documented core hooks); no custom
 refund table; no custom operation record; no broad item-hiding filter.
+
+**Accepted residual crash window, not a new failure mode:** if the process
+dies after the refund becomes durable but before the post-save restock
+action completes, the refund is correct and durable but the affected
+components are not restocked. This is the same limitation bare WooCommerce
+already accepts for its own restock call, which sits in exactly the same
+kind of unprotected gap after its own save succeeds — live-confirmed
+identical with no plugin code involved. It is surfaced for manual operator
+correction (the absence of WooCommerce's own "stock increased" order note
+is itself the detectable signal), not solved with a transaction, lock,
+journal or reconciliation sweep — building one would repeat the exact
+complexity this design was deliberately scoped away from.
 
 **Explicit non-goals, so they are never quietly re-added:** this plugin
 does not expose or own a generic refund API, a webhook wrapper, a
@@ -1195,10 +1232,13 @@ operation ledger and a refund-object operation-id meta key — to support the
 custom refund idempotency/orchestration subsystem S1-E/S1-F explored. That
 subsystem was rejected; neither meta key is written by v1. The
 refund-linkage arithmetic lives in ADR-0002's refund clause instead, added
-via the seam S1-G proved (`woocommerce_create_refund`), and needs no meta
+via the two hooks S1-G proved (a refund-creation action for line-addition,
+a post-save refund-created action for restocking — corrected split, see
+`docs/spikes/s1-g-native-refund-line-linkage.md`), and needs no meta
 contract of its own beyond the standard refunded-item linkage meta already
-placed on each derived refund line item at creation time (see the M1
-Refunds section).
+placed on each derived refund line item at creation time, plus one small
+marker meta letting the post-save hook find exactly the lines the pre-save
+hook added (see the M1 Refunds section).
 
 Contract rules:
 - **Merge rule:** within one kit line, a component listed twice in
@@ -1665,7 +1705,7 @@ implementation → validation → closure`.
   make the coupon eligible; a sitewide coupon must still apply to the
   parent kit line's real price.
 
-**Refunds — native flow only (Architecture B — S1-C/S1-D executed; native-refund seam proven by S1-G — PASS)**
+**Refunds — native flow only (Architecture B — S1-C/S1-D executed; native-refund seam proven by S1-G — PASS; hook-ordering corrected, see the spike's correction section)**
 - Native refund **with** "Restock refunded items" enabled creates one
   normal WooCommerce refund object containing both the parent refund line
   and the correctly linked derived child refund lines, and restocks each
@@ -1681,6 +1721,20 @@ implementation → validation → closure`.
   linked derived child refund lines; component stock does not change.
 - An ordinary, non-kit product's refund is entirely unaffected — no plugin
   code path interferes with it (live-confirmed, S1-G).
+- **Ordering assertion (both storage modes):** stock is unchanged
+  immediately after the refund's save succeeds, and changes only once the
+  post-save restock action has actually run — this is what distinguishes
+  the corrected design from an earlier version that restocked from the
+  pre-save hook instead.
+- **Accepted native-shaped crash-window limitation, not a new failure
+  mode:** if the process dies after the refund becomes durable but before
+  the post-save restock action completes, the refund is correct and
+  durable but the affected components are not restocked — live-confirmed
+  by a real process kill at that exact point, both storage modes, with a
+  control test (no plugin code loaded at all) showing bare WooCommerce's
+  own restock call has the identical gap natively. Surfaced for manual
+  operator correction, not solved with a transaction, lock, journal or
+  reconciliation sweep.
 - **This plugin does not need to pass, and is not required to attempt,
   retry/duplicate-submission or concurrent-refund tests, by design** — it
   owns no refund creation, persistence or restocking step of its own for a

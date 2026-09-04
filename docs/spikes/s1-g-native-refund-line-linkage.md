@@ -1,5 +1,70 @@
 # Spike S1-G — Native refund line linkage
 
+## CORRECTION — restock moved out of the pre-save hook
+
+**What was wrong.** The first pass of this spike (preserved below, unmodified) added the
+derived component refund lines **and** called WooCommerce's own restock function for them,
+**both from inside `woocommerce_create_refund`** — a hook that fires on the fully-built refund
+object **before** `$refund->save()` has ever run. Adding lines there is correct (the refund
+isn't durable yet, so attaching an item followed by WooCommerce's own subsequent save persists
+parent and children together — no separate durability concern for lines). **Restocking there is
+not correct:** it mutates real, shared component stock **before the refund that justifies the
+mutation is durable**. A crash, or a failed save, between the restock call and `$refund->save()`
+would leave stock adjusted with no refund record to justify it.
+
+**Why it mattered.** This is the same "mutate before the record is durable" ordering mistake
+this documentation series keeps finding in new places — first in stock reduction, then in the
+rejected refund-orchestration subsystem's own operation ledger (see `docs/spikes/s1-e-*`), now a
+third recurrence one layer further down, inside the very design meant to be the deliberately
+narrow, low-risk replacement for that whole rejected subsystem. **Worth stating honestly: this
+was found by review, not by this spike's own original tests** — the original 4 required cases
+asserted only end-state correctness (lines linked, quantities right, stock restocked-or-not as
+expected), never *when*, relative to the save, the restock happened.
+
+**Corrected design, re-proven live (both storage modes):**
+
+1. The refund-creation hook (pre-save, unchanged in spirit): add the derived, zero-total child
+   refund line items only, each tagged with an explicit marker meta so the second hook can find
+   them again once persisted. **No stock mutation happens here.**
+2. A second, real, documented WooCommerce action — the refund-created action, which fires only
+   after the refund's save has already succeeded, after WooCommerce's own restock call for
+   whatever line items the caller supplied, and after the order's status update — does the
+   restocking: it re-reads the now-persisted refund's own line items, keeps the ones tagged in
+   step 1, and calls WooCommerce's own exported restock function for exactly those. This is the
+   only stock mutation this design performs for a refund, and it only ever runs once the refund
+   it restocks for is already durable.
+
+**New live evidence added by this correction:**
+
+- **Ordering assertion:** stock snapshotted from inside the refund's own "fully/partially
+  refunded" events (which fire after the save but before the refund-created action) is identical
+  to the pre-refund snapshot; snapshotted again at the very start of the refund-created action —
+  still identical; only after the whole call returns has stock changed. Confirmed both storage
+  modes.
+- **Crash-window test:** a real, externally-delivered process kill landed between the refund's
+  save succeeding and this design's post-save restock action completing. Result: the refund is
+  fully durable and correctly linked; the affected components are **not** restocked; the absence
+  of WooCommerce's own "stock increased" order note is the detectable, operator-visible signal.
+- **Control, proving this is not a new risk:** the identical kill timing was reproduced for an
+  ordinary non-kit refund with this plugin's code physically removed from the test environment —
+  WooCommerce's own restock call (which sits inside the same "if the save succeeded" block as its
+  own save) shows the identical durable-but-unrestocked shape natively. This residual crash
+  window is accepted as the same limitation bare WooCommerce already has for its own restock
+  call, not a new one — surfaced for manual operator correction, not solved with a transaction,
+  lock, journal or reconciliation sweep.
+- All 4 original cases were re-run end-to-end against the corrected two-hook design and
+  reproduced the same correct outcomes as the first pass — the correction changed *when* the
+  restock runs, not *what* it computes.
+
+**Verdict, corrected: PASS.** The original content below is preserved unmodified as the
+historical record of the flawed first attempt, consistent with this documentation series'
+practice elsewhere (see the visible correction notes on `docs/spikes/s1-e-*` and
+`docs/spikes/s1-f-*`).
+
+---
+
+# Spike S1-G — Native refund line linkage — ORIGINAL PASS, restock-ordering defect since corrected above
+
 **Scope:** find out whether this plugin can add the derived component refund lines within
 WooCommerce's own supported native refund-creation flow, **without** taking ownership of
 refund creation, restocking, persistence, transactions or retry idempotency — the narrow
@@ -8,7 +73,8 @@ subsystem spikes S1-E and S1-F explored and which was ultimately rejected. This 
 revisit S1-E/S1-F's subject matter (crash recovery, concurrency, an operation-id ledger) at
 all; it answers a different, narrower question.
 
-## 1. Overall verdict: **PASS**
+## 1. Overall verdict: **PASS, but see the CORRECTION above — restocking was called from the
+wrong (pre-save) hook; this section is retained as the original, uncorrected record**
 
 A single, standard, documented WooCommerce action — `woocommerce_create_refund` — is
 sufficient. All 4 required cases pass in both WooCommerce order-storage modes (legacy post

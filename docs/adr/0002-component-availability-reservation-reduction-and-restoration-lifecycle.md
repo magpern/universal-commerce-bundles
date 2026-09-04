@@ -8,7 +8,9 @@ retained below as the record of a rejected alternative, not as
 implementation work.
 
 **The refund clause is accepted at a narrow, native-refund-only scope,
-proven by spike S1-G.** An earlier version of this clause described a
+proven by spike S1-G, with its hook-ordering corrected after an initial
+pass put a stock mutation in an unsafe pre-save hook (see the spike's
+correction section).** An earlier version of this clause described a
 custom refund idempotency/orchestration subsystem (spikes S1-E, S1-F) that
 was live-proved to work and then **rejected by product-owner decision**: a
 generic v1 bundles plugin does not take on a two-layer distributed lock,
@@ -87,24 +89,53 @@ persisting the refund, optional restocking, refund totals, admin
 nonce/request handling, payment-gateway refund execution, and API/webhook
 retry semantics.
 
-**The seam, live-proven by spike S1-G (PASS, both order-storage modes):**
-the real, documented WooCommerce action `woocommerce_create_refund` fires
-on the fully-built, not-yet-saved refund object, before WooCommerce's own
-save and before its own restock call. A callback gated to fire only when a
-refunded line carries this plugin's kit-parent marker finds each linked
-child order item, computes its derived quantity, and attaches a correctly
-linked, zero-total child refund line to the refund object — persisted by
-WooCommerce's own save immediately after. When restocking is requested,
-this plugin calls WooCommerce's own exported restock function directly for
-the derived child quantities, since core's own restock call at that point
-only sees whatever line items the caller supplied, which never name the
-hidden child lines (ADR-0005) — this is not a reimplementation of
-restocking, it is the same public function core itself uses. Full
-evidence: `docs/spikes/s1-g-native-refund-line-linkage.md`.
+**The seam — two hooks, not one, live-proven by spike S1-G (PASS, both
+order-storage modes; the first pass put both responsibilities in a single
+pre-save hook, which review found unsafe — corrected below, full detail in
+the spike's correction section):**
 
-Confirmed absent from this design: an order-wide transaction; a
-private/internal WooCommerce API; a custom refund table; a custom
-operation record; a broad item-hiding filter.
+1. A real, documented WooCommerce refund-creation action fires on the
+   fully-built, **not-yet-saved** refund object, before WooCommerce's own
+   save and before its own restock call. A callback gated to fire only
+   when a refunded line carries this plugin's kit-parent marker finds each
+   linked child order item, computes its derived quantity, and attaches a
+   correctly linked, zero-total child refund line — tagged with a private
+   marker meta — to the refund object, persisted by WooCommerce's own save
+   immediately after. **No stock mutation happens here**, because the
+   refund is not yet durable at this point.
+2. A second action fires only after that save has already succeeded, after
+   WooCommerce's own restock call for whatever line items the caller
+   supplied, and after the order's status update. Only if restocking was
+   requested, this plugin re-reads the now-persisted refund's own line
+   items, keeps the ones it tagged in step 1, and calls WooCommerce's own
+   exported restock function directly for those derived child quantities,
+   since core's own restock call at step 1's point in the flow only sees
+   whatever line items the caller supplied, which never name the hidden
+   child lines (ADR-0005) — this is not a reimplementation of restocking,
+   it is the same public function core itself uses, called once the refund
+   it restocks for is already durable.
+
+Full evidence, including a live ordering assertion (stock unchanged
+immediately after the refund's save succeeds, changed only once the
+post-save action has run) and a real crash-window test (a process killed
+between the refund becoming durable and the post-save restock action
+completing leaves the refund correct and unrestocked, reproduced
+identically with no plugin code loaded against bare WooCommerce's own
+restock call):
+`docs/spikes/s1-g-native-refund-line-linkage.md`.
+
+Confirmed absent from this design, in either hook: an order-wide
+transaction; a private/internal WooCommerce API; a custom refund table; a
+custom operation record; a broad item-hiding filter.
+
+**Accepted residual crash window, not a new failure mode:** a process that
+dies after the refund becomes durable but before the post-save restock
+action completes leaves a correct, durable refund with the affected
+components not yet restocked — the same limitation bare WooCommerce
+already accepts for its own restock call, live-confirmed identical with no
+plugin code involved. Surfaced for manual operator correction (the absence
+of WooCommerce's own restock order note is itself the signal), not solved
+with a transaction, lock, journal or reconciliation sweep.
 
 **Explicit non-goals:** this plugin does not expose or own a generic
 refund API, a webhook wrapper, a gateway-refund flow, a retry mechanism, or
