@@ -1,0 +1,13 @@
+parameters:
+    level: 5
+    paths:
+        - src
+        - universal-commerce-bundles.php
+    bootstrapFiles:
+        - vendor/php-stubs/woocommerce-stubs/woocommerce-stubs.php
+    scanFiles:
+        - tests/Fixtures/WooCommerceStub.php
+    treatPhpDocTypesAsCertain: false
+
+includes:
+    - vendor/szepeviktor/phpstan-wordpress/extension.neon
