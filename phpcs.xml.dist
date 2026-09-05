@@ -1,0 +1,81 @@
+<?xml version="1.0"?>
+<ruleset name="UniversalCommerceBundles">
+    <description>Coding standard for Universal Commerce Bundles.</description>
+
+    <file>src</file>
+    <file>tests</file>
+    <file>universal-commerce-bundles.php</file>
+
+    <arg name="basepath" value="."/>
+    <arg name="colors"/>
+    <arg name="extensions" value="php"/>
+    <arg value="sp"/>
+
+    <config name="minimum_supported_wp_version" value="6.5"/>
+    <config name="testVersion" value="8.1-"/>
+
+    <!-- WordPress-Extra pulls in WordPress-Core + WordPress-Docs; VIP-Go
+         style rules are intentionally not used, since this is a portable
+         public plugin, not a VIP-hosted one. -->
+    <rule ref="WordPress-Extra">
+        <!-- File-naming conventions assume a WP.org-style plugin slug on
+             every file; PSR-4 class-per-file naming under src/ is the
+             deliberate, documented layout for this plugin (see
+             docs/ARCHITECTURE.md, "Foundation scope"). -->
+        <exclude name="WordPress.Files.FileName"/>
+        <!-- This codebase is PSR-4 autoloaded via Composer; a global
+             function-naming convention keyed on the plugin slug does not
+             apply to namespaced, autoloaded class methods. -->
+        <exclude name="WordPress.NamingConventions.ValidFunctionName"/>
+        <exclude name="WordPress.NamingConventions.ValidVariableName"/>
+        <!-- Mandatory full docblocks (with a short description and a
+             @param/@return tag on every single method, including trivial
+             one-line test methods whose name is already the description)
+             add noise without adding information in a small, camelCase,
+             strict_types, PSR-4 codebase with typed signatures throughout.
+             Docblocks are still written wherever they carry real content
+             (see every non-trivial method in src/) — this only removes the
+             blanket "every method/class/file must have one" requirement. -->
+        <exclude name="Squiz.Commenting.FunctionComment.Missing"/>
+        <exclude name="Squiz.Commenting.ClassComment.Missing"/>
+        <exclude name="Squiz.Commenting.FileComment.Missing"/>
+        <exclude name="Squiz.Commenting.FileComment.MissingPackageTag"/>
+        <exclude name="Squiz.Commenting.FunctionComment.MissingParamTag"/>
+        <exclude name="Generic.Commenting.DocComment.MissingShort"/>
+    </rule>
+
+    <!-- tests/ and bin/ are build/test tooling, not runtime plugin code that
+         runs inside a live WordPress request — WP_Filesystem and
+         wp_remote_get() are the right choice at runtime, but do not apply
+         to a PHPUnit test reading a local fixture file or a CLI
+         test-bootstrap script writing to STDERR. -->
+    <rule ref="WordPress.WP.AlternativeFunctions">
+        <exclude-pattern>tests/*</exclude-pattern>
+    </rule>
+
+    <rule ref="WordPress.WP.I18n">
+        <properties>
+            <property name="text_domain" type="array">
+                <element value="universal-commerce-bundles"/>
+            </property>
+        </properties>
+    </rule>
+
+    <rule ref="WooCommerce-Core">
+        <!-- Applied on top of WordPress-Extra for the WooCommerce-specific
+             conventions (see composer.json's woocommerce/woocommerce-sniffs
+             dependency). Only src/Woo is expected to actually trigger these,
+             by design (see the WooCommerce confinement structural test). -->
+    </rule>
+
+    <!-- This project uses strict_types and typed properties throughout;
+         allow them explicitly rather than fighting PHPCompatibilityWP on a
+         PHP 8.1 floor that already supports both. -->
+    <rule ref="PHPCompatibilityWP">
+        <exclude-pattern>tests/*</exclude-pattern>
+    </rule>
+
+    <exclude-pattern>vendor/*</exclude-pattern>
+    <exclude-pattern>build/*</exclude-pattern>
+    <exclude-pattern>*.dist</exclude-pattern>
+</ruleset>

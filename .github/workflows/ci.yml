@@ -1,0 +1,114 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # M0 foundation has no live WooCommerce/WordPress runtime behavior yet
+  # (PHPUnit tests use Brain\Monkey WordPress-function mocks, not a real
+  # WP/WC install) — so this matrix validates the scaffold (coding
+  # standards, static analysis, and the unit/structural test suite) across
+  # the PHP versions docs/ARCHITECTURE.md's compatibility table commits to,
+  # labelled by the nominal WordPress/WooCommerce target each row stands
+  # in for. A real, live WordPress + WooCommerce + MariaDB integration
+  # matrix is M1 scope, once there is kit/cart/order behavior to exercise
+  # against an actual install (see docs/m1-closure.md once M1 lands).
+  build-and-test:
+    name: PHP ${{ matrix.php }} (WP ${{ matrix.wp_target }} / WC ${{ matrix.wc_target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Floor — docs/ARCHITECTURE.md's minimum supported versions.
+          - php: '8.1'
+            wp_target: '6.5'
+            wc_target: '8.2'
+          # Spike-exercised — the exact versions every S1 spike ran against.
+          - php: '8.4'
+            wp_target: '7.0.2'
+            wc_target: '11.0.1'
+          # Latest at time of writing.
+          - php: '8.4'
+            wp_target: '7.1'
+            wc_target: '11.1.0'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP ${{ matrix.php }}
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+          tools: composer:v2
+
+      - name: Get composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: composer-php${{ matrix.php }}-${{ hashFiles('**/composer.json') }}
+          restore-keys: composer-php${{ matrix.php }}-
+
+      - name: Install dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist
+
+      - name: Coding standards (PHPCS)
+        run: composer run cs -- --report=full
+
+      - name: Static analysis (PHPStan)
+        run: composer run stan -- --error-format=github
+
+      - name: Unit + structural tests (PHPUnit)
+        run: composer run test -- --testdox
+
+      - name: Validate composer.json
+        run: composer validate --strict
+
+  build-zip:
+    name: Build distributable ZIP
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1'
+          coverage: none
+          tools: composer:v2
+
+      - name: Build package
+        run: composer run package
+
+      - name: Validate ZIP contents exclude dev-only files
+        run: |
+          set -euo pipefail
+          zip_file="$(ls build/*.zip)"
+          echo "Inspecting $zip_file"
+          if unzip -l "$zip_file" | grep -Eq '(^|/)(tests|\.github|phpunit\.xml\.dist|phpcs\.xml\.dist|phpstan\.neon\.dist|composer\.lock)(/|$)'; then
+            echo "::error::Built ZIP contains dev-only files"
+            unzip -l "$zip_file"
+            exit 1
+          fi
+          if ! unzip -l "$zip_file" | grep -q 'universal-commerce-bundles.php'; then
+            echo "::error::Built ZIP is missing the plugin bootstrap file"
+            exit 1
+          fi
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: universal-commerce-bundles-zip
+          path: build/*.zip
+          retention-days: 14
