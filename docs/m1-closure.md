@@ -462,6 +462,69 @@ its own static converted price times quantity, never a sum touching
 component prices, live-confirmed by reading the persisted session cart
 row directly).
 
+### ADR-0005 direct component-page visit acceptance — the last outstanding M1 item, now closed
+
+The one item the section above explicitly left open ("Canonical-kit-redirect
+/ 404 behaviour for direct component-page visits") was independently
+verified with genuine HTTP requests (curl against a real running WordPress
+front end — not direct PHP method calls, not WP-CLI-only checks) in its own
+separate disposable session. Environment: a fresh three-container stack
+(MariaDB 10.11.9, WordPress 6.5 + WooCommerce 8.2.0 — the CI matrix's floor
+combination — plus a `wp-cli` sidecar sharing the same WordPress
+installation) on a dedicated bridge network, no ports published to the
+host, this branch's working tree bind-mounted **read-only** into the
+WordPress container's plugin directory, `curl` run from a throwaway
+container on the same network. All containers, the network, and the named
+volume were removed at the end (`docker compose down -v`); `docker ps`/
+`docker network ls`/`docker volume ls` confirmed nothing was left over. No
+other repository, no DEV, and no production resource was touched.
+
+Real WooCommerce products were created via `wp post create` +
+`wp post meta update`, with the exact `ComponentVisibility` meta key
+constants (`MetaKeys::PRODUCT_HIDDEN_FROM_CATALOG` = `_ucb_hidden_from_catalog`,
+`MetaKeys::PRODUCT_CANONICAL_KIT_ID` = `_ucb_canonical_kit_id`):
+
+1. **Hidden component with a valid canonical kit — PASS.** A component
+   (`_ucb_hidden_from_catalog = yes`, `_ucb_canonical_kit_id` = a real,
+   published kit product's id) visited at its own product URL returned:
+   ```
+   HTTP/1.1 301 Moved Permanently
+   Location: http://<container>/product/test-kit-alpha/
+   X-Redirect-By: WordPress
+   ```
+   Following that `Location` confirmed the destination was the correct
+   kit's own page (`HTTP/1.1 200 OK`, page title "Test Kit Alpha", the
+   exact product the meta pointed at).
+2. **Hidden component with no canonical kit set — PASS.** A component
+   (`_ucb_hidden_from_catalog = yes`, `_ucb_canonical_kit_id` unset —
+   confirmed absent via `wp post meta get`, exit code 1) visited at its own
+   product URL returned a genuine `set_404()` outcome, not an accidental
+   redirect or a PHP error page:
+   ```
+   HTTP/1.1 404 Not Found
+   ```
+   with WordPress's own real 404 template body rendered ("Page not found"
+   / "Page Not Found" markers present), no `Location` header, and no
+   PHP warning/notice/fatal in the response body or the container's error
+   log for this request.
+3. **Ordinary visible component/product — PASS.** A product with no
+   `_ucb_hidden_from_catalog` meta at all returned a normal
+   `HTTP/1.1 200 OK`, no redirect, correct page content; re-tested with
+   the meta explicitly set to `no` (rather than merely absent) — same
+   result, confirming the `'yes' !== ...` comparison in
+   `redirectOrFourOhFourDirectVisits()` handles both the absent and
+   explicit-`no` forms identically, as the code's own guard clause implies.
+
+**No code change was required.** `src/Woo/ComponentVisibility.php`'s
+`redirectOrFourOhFourDirectVisits()` already matched this policy exactly on
+review, and all three live sub-cases confirmed it byte-for-byte —
+`wp_safe_redirect( $url, 301 )` + `exit` on a valid canonical kit,
+`$wp_query->set_404()` + `status_header( 404 )` otherwise, and an early
+return for anything not hidden. The full PHPCS/PHPStan/PHPUnit suite (49
+PHPCS checks, PHPStan level with 0 errors, 72 PHPUnit tests) was re-run
+against the current `feature/m1-fixed-kits-core` head and remained green,
+unchanged from the count already recorded above.
+
 ## Repository / CI
 
 PHPCS (WordPress-Extra + WooCommerce-Core + WordPress.WP.I18n), PHPStan
@@ -474,10 +537,10 @@ path.
 
 ## What remains before any real deployment
 
-**Canonical-kit-redirect / 404 behaviour for direct component-page
-visits** remains not independently re-verified live in this pass (it was
-outside this pass's six-item mandate; ADR-0005's mechanism is unchanged
-and was not touched). Otherwise: the host MU-plugin guard (separate
+Canonical-kit-redirect / 404 behaviour for direct component-page visits
+has since been independently verified live (see "ADR-0005 direct
+component-page visit acceptance" above) — no code change was needed.
+What remains: the host MU-plugin guard (separate
 repository); the fulfillment-plugin parent-skip change (separate
 repository); the promotions-plugin exclusion (separate repository); a
 real acceptance/QA pass against a staging store; a security review; and,
