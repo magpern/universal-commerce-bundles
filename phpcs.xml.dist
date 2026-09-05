@@ -42,6 +42,23 @@
         <exclude name="Squiz.Commenting.FileComment.MissingPackageTag"/>
         <exclude name="Squiz.Commenting.FunctionComment.MissingParamTag"/>
         <exclude name="Generic.Commenting.DocComment.MissingShort"/>
+        <!-- Same reasoning extended to partial docblocks: a method whose
+             docblock documents only its non-obvious (array/object-shaped)
+             parameters, leaving plain scalar/typed ones to their own type
+             hints, is more readable than one restating every parameter's
+             already-declared type in prose — but that partial-vs-full
+             mismatch is exactly what these three sniffs flag. -->
+        <exclude name="Squiz.Commenting.FunctionComment.MissingParamComment"/>
+        <exclude name="Squiz.Commenting.FunctionComment.ParamNameNoMatch"/>
+        <exclude name="Squiz.Commenting.FunctionComment.IncorrectTypeHint"/>
+        <exclude name="Squiz.Commenting.VariableComment.Missing"/>
+        <exclude name="Squiz.Commenting.VariableComment.MissingVar"/>
+        <!-- This plugin's own meta/reverse-index lookups are deliberately
+             small (one product's composition, one component's kit list) —
+             the "possible slow query" warning is aimed at unbounded,
+             uncached meta queries across the whole posts table, which none
+             of these are. -->
+        <exclude name="WordPress.DB.SlowDBQuery"/>
     </rule>
 
     <!-- tests/ and bin/ are build/test tooling, not runtime plugin code that

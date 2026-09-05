@@ -7,13 +7,11 @@ namespace UniversalCommerceBundles\Infrastructure;
 use UniversalCommerceBundles\Woo\Compatibility;
 
 /**
- * Plugin bootstrap orchestrator.
- *
- * M0 scope only: activation/deactivation lifecycle scaffolding, the
- * WooCommerce-dependency safe-fail gate, and emitting the generic
- * `ucb_runtime_ready` capability-handshake signal (ADR-0006) once
- * bootstrap has fully succeeded. No kit, cart, order, or refund behavior
- * is registered here — that is M1's scope.
+ * Plugin bootstrap orchestrator: activation/deactivation lifecycle, the
+ * WooCommerce-dependency safe-fail gate, wiring M1's fixed-kit core
+ * (KitModule) once requirements are met, and emitting the generic
+ * `ucb_runtime_ready` capability-handshake signal (ADR-0006) as the final
+ * successful bootstrap step.
  */
 final class Plugin {
 
@@ -57,15 +55,25 @@ final class Plugin {
 	}
 
 	/**
-	 * Deactivation lifecycle hook. M0: no kit-specific behavior.
+	 * Deactivation lifecycle hook. ADR-0006 policy: writes persistent
+	 * safety state (every kit locked non-purchasable) before completing,
+	 * so kits stay safe even once no plugin code runs at all. Guarded so a
+	 * deactivation that happens to run without WooCommerce loaded (an
+	 * unusual, but possible, ordering) still never fatals.
 	 */
 	public function deactivate(): void {
+		if ( ! Compatibility::isWooCommerceActive() ) {
+			return;
+		}
+
+		( new \UniversalCommerceBundles\Woo\DeactivationLock() )->lockAllKits();
 	}
 
 	/**
 	 * Runs on `plugins_loaded`. Gates everything else on the WooCommerce
 	 * dependency check, and never fatals: an absent or too-old WooCommerce
-	 * is handled by self-deactivating safely with an admin notice.
+	 * is handled by self-deactivating safely with an admin notice. Once
+	 * requirements are met, wires M1's fixed-kit core (KitModule).
 	 */
 	public function init(): void {
 		if ( ! Compatibility::meetsRequirements() ) {
@@ -74,13 +82,14 @@ final class Plugin {
 			return;
 		}
 
+		KitModule::instance()->register();
+
 		/**
 		 * Fires exactly once, as the final successful bootstrap step, once
 		 * this plugin has fully initialised (ADR-0006 capability contract,
 		 * term 1). The host MU-plugin guard listens for this to set its
 		 * request-local readiness signal to true; it must never infer
-		 * current health from anything else. M0 is otherwise inert: no
-		 * kit/cart/order/refund behavior is registered here.
+		 * current health from anything else.
 		 *
 		 * @param array{plugin_version: string, contract_version: int, snapshot_versions: int[]} $payload {
 		 *     @type string $plugin_version    This plugin's own version.

@@ -6,7 +6,6 @@ namespace UniversalCommerceBundles\Tests\Unit;
 
 use Brain\Monkey;
 use Brain\Monkey\Actions;
-use Brain\Monkey\Functions;
 use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use PHPUnit\Framework\TestCase;
 use UniversalCommerceBundles\Infrastructure\Plugin;
@@ -15,7 +14,9 @@ use UniversalCommerceBundles\Infrastructure\Plugin;
  * The positive-path counterpart to PluginSafeFailTest: with WooCommerce
  * present and new enough, init() must emit `ucb_runtime_ready` exactly
  * once (ADR-0006, capability contract term 1), carrying the documented
- * payload keys, and must not register the self-deactivation path.
+ * payload keys. (It also wires KitModule's M1 hooks, which is exercised
+ * as its own concern in KitModuleRegistrationTest — this test only checks
+ * the capability-handshake signal itself.)
  *
  * Isolated in its own process because it defines the real WC_VERSION
  * constant, which cannot be undefined again afterwards in the same
@@ -38,18 +39,18 @@ final class PluginRuntimeReadyTest extends TestCase {
 		}
 
 		Plugin::resetForTests();
+		\UniversalCommerceBundles\Infrastructure\KitModule::resetForTests();
 	}
 
 	protected function tearDown(): void {
 		Plugin::resetForTests();
+		\UniversalCommerceBundles\Infrastructure\KitModule::resetForTests();
 		Monkey\tearDown();
 		parent::tearDown();
 	}
 
 	#[RunInSeparateProcess]
 	public function test_init_emits_ucb_runtime_ready_exactly_once_with_the_documented_payload(): void {
-		Functions\expect( 'add_action' )->never();
-
 		Actions\expectDone( 'ucb_runtime_ready' )
 			->once()
 			->whenHappen(
