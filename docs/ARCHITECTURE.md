@@ -1461,7 +1461,7 @@ being declared compatible with kits.
 | Kit snapshot schema (parent line) | this plugin | fulfillment plugin (skip guard), storefront (Contents line) |
 | Component/parent-item-id/snapshot-version/position meta (child lines) | this plugin | promotions (ADR-0007, ADR-0008, closed), coupons/shipping/analytics exclusion filters (ADR-0007), fulfillment plugin (implicitly, via the parent-skip guard only) |
 | Parent-skip contract | this plugin documents the kit marker as the skip key | fulfillment plugin, independently (no expansion, no version negotiation needed) |
-| Readiness signal | fulfillment plugin answers | this plugin gates purchasability |
+| Runtime-ready signal | UCB, after successful bootstrap | independent host MU safety guard |
 | "Is a kit" product meta | this plugin | promotions (data-contract dependency, no code dependency; the kit parent follows ordinary promotion rules — the originally proposed default sitewide-campaign exclusion is superseded, see the milestone section and C27) |
 | Capability signal (persisted option + readiness handshake) | this plugin, only after successful init | host safety-guard MU-plugin |
 
