@@ -27,7 +27,7 @@ final class PluginSafeFailTest extends TestCase {
 			define( 'UCB_PLUGIN_FILE', dirname( __DIR__, 2 ) . '/universal-commerce-bundles.php' );
 		}
 		if ( ! defined( 'UCB_PLUGIN_VERSION' ) ) {
-			define( 'UCB_PLUGIN_VERSION', '0.1.0-dev' );
+			define( 'UCB_PLUGIN_VERSION', '0.1.0' );
 		}
 
 		Plugin::resetForTests();
