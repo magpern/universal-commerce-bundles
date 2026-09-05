@@ -2,9 +2,28 @@
 
 ## Status
 
-Ready for final review — accepted upon merge of the documentation-freeze
-pull request, not before. New ADR, introduced by spike S1-D's findings, not
-present in the original six-ADR register.
+**Accepted** — merged as part of the documentation-freeze pull request
+(PR #1, `docs/architecture-freeze`). New ADR, introduced by spike S1-D's
+findings, not present in the original six-ADR register.
+
+**Partially superseded, promotions row only — see ADR-0008.** The
+"Promotions condition engine" row's *seam* below (an `is_kit_component`
+field added to promotions' cart-context projection, checked at each
+condition's matching point) was this ADR's finding from spike S1-D against
+a proof-of-concept, mocked promotions engine, not the real
+`mp-commerce-promotions` codebase. The real plugin's own accepted design
+(its ADR-0001, `docs/adr/0001-ucb-component-cart-line-exclusion.md` in that
+repository) excludes the hidden child at a single upstream choke point —
+cart-context *construction*, before any condition or matcher ever sees the
+row — rather than adding a field checked at each matching point
+separately. **The invariant this ADR states — a hidden component line must
+never be treated as a genuine customer selection by any cart/order/coupon/
+shipping/analytics/promotion consumer — is unchanged and still holds; only
+the promotions row's specific *mechanism* is superseded.** See ADR-0008 for
+the accepted record of the real implementation, its version/runtime
+prerequisite, and its fail-safe behaviour when absent or outdated. No other
+row in this ADR (coupons, shipping, analytics, cart-block server-render) is
+affected.
 
 ## Context
 
@@ -75,7 +94,7 @@ consumer:**
 
 | Consumer | Seam | What it does |
 |---|---|---|
-| Promotions condition engine | cart-context projection + cart-item matcher edits | excludes hidden children from product/category/quantity condition matching |
+| Promotions condition engine | ~~cart-context projection + cart-item matcher edits~~ — superseded, see ADR-0008 | excludes hidden children from product/category/quantity condition matching |
 | WooCommerce core coupon eligibility | `woocommerce_coupon_get_items_to_validate` | excludes hidden children from product/category coupon-restriction validation |
 | WooCommerce core shipping | the existing cart-totals zeroing hook, extended | prevents double-counted weight, dimensions and shipping-class bucketing |
 | WooCommerce core Analytics | a scope-flag order-items filter around the recurring Analytics sync action | prevents units-sold/gross-revenue pollution from hidden children |

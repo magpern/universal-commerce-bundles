@@ -2,8 +2,8 @@
 
 ## Status
 
-Ready for final review — accepted upon merge of the documentation-freeze
-pull request, not before. The decision recorded below is "one-line skip,"
+**Accepted** — merged as part of the documentation-freeze pull request
+(PR #1, `docs/architecture-freeze`). The decision recorded below is "one-line skip,"
 replacing the originally planned "expansion" design, following the
 Architecture A → B decision (ADR-0002).
 

@@ -2,8 +2,8 @@
 
 ## Status
 
-Ready for final review — accepted upon merge of the documentation-freeze
-pull request, not before. Narrowed by the Architecture A → B decision. The purchasability
+**Accepted** — merged as part of the documentation-freeze pull request
+(PR #1, `docs/architecture-freeze`). Narrowed by the Architecture A → B decision. The purchasability
 guard, capability handshake, and deactivation-lock policy are retained
 unchanged. The custom problem-status ownership term and the
 background-stock-operation-deferral responsibility, both required under

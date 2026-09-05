@@ -540,10 +540,27 @@ path.
 Canonical-kit-redirect / 404 behaviour for direct component-page visits
 has since been independently verified live (see "ADR-0005 direct
 component-page visit acceptance" above) — no code change was needed.
-What remains: the host MU-plugin guard (separate
-repository); the fulfillment-plugin parent-skip change (separate
-repository); the promotions-plugin exclusion (separate repository); a
-real acceptance/QA pass against a staging store; a security review; and,
-per the architecture doc's own governance section, a separate
-closure/acceptance decision — this document is an implementation and
-validation record, not a release or deployment authorization.
+
+**The promotions-plugin milestone (separate repository) is now closed in
+full** — `mp-commerce-promotions` has independently designed, implemented,
+and live-validated its own accepted hidden-child exclusion fix (that
+repository's ADR-0001, PR #6, merged commit
+`9d9d8a18ccedd793fb77d7b8da803d01dd3be8d5` on its `main` branch); see
+`docs/adr/0008-promotions-plugin-integration-closure.md` in this repository
+for the reconciliation record. **Deployment-readiness note, not a UCB
+blocker:** that commit is not yet in a tagged release of that plugin — its
+latest tag, `v0.5.4`, predates the fix by 14 commits — so a site must
+currently install `mp-commerce-promotions` from `main` (or a later release
+once one is cut) to get the exclusion. This plugin's originally proposed
+kit-level default sitewide-campaign exclusion is **superseded, not
+open** — `mp-commerce-promotions`'s own accepted design has the kit-parent
+line follow ordinary promotion rules with no automatic exclusion policy
+(ADR-0008, C27).
+
+What remains: the host MU-plugin guard (separate repository); the
+fulfillment-plugin parent-skip change (separate repository); a real
+acceptance/QA pass against a staging store; a security review; and, per
+the architecture doc's own governance section, a separate closure/
+acceptance decision — this document is an implementation and validation
+record, not a release or
+deployment authorization.
