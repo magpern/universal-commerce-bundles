@@ -8,6 +8,18 @@ parameters:
     scanFiles:
         - tests/Fixtures/WooCommerceStub.php
     treatPhpDocTypesAsCertain: false
+    ignoreErrors:
+        -
+            # WooCommerce sets $cart, $session, $customer, etc. on the
+            # WooCommerce class dynamically at runtime (WC::init(), called
+            # from the 'woocommerce_init' action) rather than declaring them
+            # as typed properties — a real, stable, documented public API
+            # (`WC()->cart`) that php-stubs/woocommerce-stubs does not
+            # model as a class property. Narrowly scoped to that one
+            # property to avoid masking a genuine undefined-property bug
+            # elsewhere.
+            message: '#Access to an undefined property WooCommerce\:\:\$cart#'
+            identifier: property.notFound
 
 includes:
     - vendor/szepeviktor/phpstan-wordpress/extension.neon
