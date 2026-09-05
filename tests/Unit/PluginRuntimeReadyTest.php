@@ -35,7 +35,7 @@ final class PluginRuntimeReadyTest extends TestCase {
 			define( 'UCB_PLUGIN_FILE', dirname( __DIR__, 2 ) . '/universal-commerce-bundles.php' );
 		}
 		if ( ! defined( 'UCB_PLUGIN_VERSION' ) ) {
-			define( 'UCB_PLUGIN_VERSION', '0.1.0-dev' );
+			define( 'UCB_PLUGIN_VERSION', '0.1.0' );
 		}
 
 		Plugin::resetForTests();
@@ -55,7 +55,7 @@ final class PluginRuntimeReadyTest extends TestCase {
 			->once()
 			->whenHappen(
 				static function ( array $payload ): void {
-					self::assertSame( '0.1.0-dev', $payload['plugin_version'] );
+					self::assertSame( '0.1.0', $payload['plugin_version'] );
 					self::assertSame( 1, $payload['contract_version'] );
 					self::assertSame( array( 1 ), $payload['snapshot_versions'] );
 				}
