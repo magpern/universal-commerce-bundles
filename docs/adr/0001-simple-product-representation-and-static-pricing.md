@@ -2,8 +2,8 @@
 
 ## Status
 
-Ready for final review — accepted upon merge of the documentation-freeze
-pull request, not before.
+**Accepted** — merged as part of the documentation-freeze pull request
+(PR #1, `docs/architecture-freeze`).
 
 ## Context
 

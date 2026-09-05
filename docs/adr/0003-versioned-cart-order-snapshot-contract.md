@@ -2,8 +2,8 @@
 
 ## Status
 
-**Ready for final review — accepted upon merge of the documentation-freeze
-pull request, not before.** The snapshot and per-child line contract (`_ucb_kit`,
+**Accepted** — merged as part of the documentation-freeze pull request
+(PR #1, `docs/architecture-freeze`). The snapshot and per-child line contract (`_ucb_kit`,
 `_ucb_parent_item_id`, `_ucb_component`, `_ucb_snapshot_version`,
 `_ucb_position`) was settled and proven by S1-C/S1-D, and was never in
 question.

@@ -2,8 +2,8 @@
 
 ## Status
 
-Ready for final review — accepted upon merge of the documentation-freeze
-pull request, not before. The decision recorded below is Architecture B,
+**Accepted** — merged as part of the documentation-freeze pull request
+(PR #1, `docs/architecture-freeze`). The decision recorded below is Architecture B,
 proven by live spikes S1-C and S1-D. Architecture A (spikes S1-A/S1-B) was
 independently proven viable on its own terms and is retained below as the
 record of a rejected alternative, not as implementation work.

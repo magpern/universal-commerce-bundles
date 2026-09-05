@@ -587,6 +587,7 @@ visible text in a given theme/config.
 | C23 | The `pending` record stops two genuinely concurrent attempts from both proceeding (S1-E) | **Wrong, and live-disproven.** Order meta read-then-written is not an atomic claim: 10 out of 10 iterations with two concurrent OS processes, and 5 out of 5 with four, produced duplicate refunds and multiplied restocks — the four-process case restocking a component *above* its starting level. Corrected in S1-F to a two-layer atomic lock (database named lock + `INSERT IGNORE` lease with an atomic compare-and-swap takeover) |
 | C24 | Writing the operation id onto the refund after the core call makes it a durable reconciliation target (S1-E) | **Wrong.** By then the refund row, its line items and the restock are all durable; a process killed in that interval leaves a real refund and a real restock with no identity, and recovery duplicates both — live-proven. Hooking the core action documented as firing "before save" does not fix it either, because the refund is already persisted by then (V15). Corrected in S1-F: the identity is attached on the object-save action that precedes the data store's `create()`, and that save is bracketed in a transaction |
 | C25 | UCB should own a custom refund idempotency/orchestration subsystem (S1-E/S1-F: operation ledger, two-layer locking, transactions, reconciliation sweep) | **Rejected by product-owner decision (V17), not closed by further engineering.** A generic v1 bundles plugin does not get a custom refund-orchestration subsystem. Replaced by the narrow native-refund-only scope (V17), proven sufficient by spike S1-G (PASS). S1-E and S1-F are retained as evidence for why the custom approach doesn't fit a generic v1 plugin — valuable history — not as an implementation design that was ever accepted |
+| C26 | The promotions plugin's hidden-child exclusion is a three-file fix: an `is_kit_component` field added to its cart-context projection, checked separately at each condition-matching point (spike S1-D, against a mocked promotions engine) | **Superseded by the real implementation, not merely refined.** `mp-commerce-promotions`'s own accepted design (that repository's ADR-0001, PR #6, merged commit `9d9d8a1`) excludes the marked row once, upstream, at its cart-context *construction* step, before any condition/matcher/allocation code runs — not as a field checked separately at each matching point. The invariant this plugin published (a hidden component line must never be treated as a genuine selection) is unchanged and confirmed correct; only the mocked spike's guess at the other repository's internal mechanism was wrong, which is expected since promotions owns that mechanism natively (see ADR-0008) |
 
 ---
 
@@ -851,13 +852,14 @@ note above.
 
 | ADR | Subject | Status |
 |---|---|---|
-| ADR-0001 | Simple-product representation and static pricing | Ready for acceptance upon merge — unaffected by the Architecture A→B decision |
-| ADR-0002 | Component availability, reservation, reduction and restoration lifecycle | Ready for acceptance upon merge, for the stock lifecycle — Architecture B (V13). Reservation/reduction/restoration delegated to WooCommerce core, unmodified. Architecture A (S1-A/S1-B, V12) is superseded and retained only as rejected-alternative evidence. **Its refund clause is ready for acceptance at the narrow native-refund-line-linkage scope (V17), proven by spike S1-G (PASS).** The custom refund idempotency/orchestration subsystem S1-E/S1-F explored is a **rejected alternative by product-owner decision (C25)**, not carried forward |
-| ADR-0003 | Versioned cart/order snapshot contract | Ready for acceptance upon merge — the kit snapshot and per-child meta contract (S1-C/S1-D) were settled and never in question. The refund-*operation* contract this ADR briefly grew (an operation ledger and refund-object operation-id meta, S1-E/S1-F) is **withdrawn by product-owner decision (V17/C25)** — refunds carry no plugin-owned operation contract in v1; the derived child-refund-line linkage lives in ADR-0002's refund clause instead, at the scope S1-G proved |
-| ADR-0004 | Fulfillment-plugin expansion and compatibility contract | Ready for acceptance upon merge — "one-line skip," not expansion (S1-C/S1-D). The fulfillment plugin ignores any kit-marked line; every other line, including components, is ingested unmodified |
-| ADR-0005 | Hidden-component visibility and direct-URL policy | Ready for acceptance upon merge — unaffected by the architecture decision |
-| ADR-0006 | Cross-plugin rollout / readiness gate, and inactive-plugin safety | Ready for acceptance upon merge, narrowed — purchasability guard/capability handshake/deactivation-lock policy retained unchanged; the custom-status ownership term and background-stock-deferral responsibility are removed — proven unnecessary for stock-lifecycle correctness under Architecture B |
-| ADR-0007 | Cross-cutting cart/order-line exclusion contract (promotions, coupons, shipping, analytics) | New; ready for acceptance upon merge — a hidden kit-component line must never be treated as a genuine customer selection by any cart/order/coupon/shipping/analytics consumer, native or third-party |
+| ADR-0001 | Simple-product representation and static pricing | **Accepted** — unaffected by the Architecture A→B decision |
+| ADR-0002 | Component availability, reservation, reduction and restoration lifecycle | **Accepted**, for the stock lifecycle — Architecture B (V13). Reservation/reduction/restoration delegated to WooCommerce core, unmodified. Architecture A (S1-A/S1-B, V12) is superseded and retained only as rejected-alternative evidence. **Its refund clause is accepted at the narrow native-refund-line-linkage scope (V17), proven by spike S1-G (PASS).** The custom refund idempotency/orchestration subsystem S1-E/S1-F explored is a **rejected alternative by product-owner decision (C25)**, not carried forward |
+| ADR-0003 | Versioned cart/order snapshot contract | **Accepted** — the kit snapshot and per-child meta contract (S1-C/S1-D) were settled and never in question. The refund-*operation* contract this ADR briefly grew (an operation ledger and refund-object operation-id meta, S1-E/S1-F) is **withdrawn by product-owner decision (V17/C25)** — refunds carry no plugin-owned operation contract in v1; the derived child-refund-line linkage lives in ADR-0002's refund clause instead, at the scope S1-G proved |
+| ADR-0004 | Fulfillment-plugin expansion and compatibility contract | **Accepted** — "one-line skip," not expansion (S1-C/S1-D). The fulfillment plugin ignores any kit-marked line; every other line, including components, is ingested unmodified |
+| ADR-0005 | Hidden-component visibility and direct-URL policy | **Accepted** — unaffected by the architecture decision |
+| ADR-0006 | Cross-plugin rollout / readiness gate, and inactive-plugin safety | **Accepted**, narrowed — purchasability guard/capability handshake/deactivation-lock policy retained unchanged; the custom-status ownership term and background-stock-deferral responsibility are removed — proven unnecessary for stock-lifecycle correctness under Architecture B |
+| ADR-0007 | Cross-cutting cart/order-line exclusion contract (promotions, coupons, shipping, analytics) | **Accepted** — a hidden kit-component line must never be treated as a genuine customer selection by any cart/order/coupon/shipping/analytics consumer, native or third-party. **Its "Promotions condition engine" row's specific mechanism is superseded by ADR-0008** — the invariant is unchanged; every other row is unaffected |
+| ADR-0008 | Promotions-plugin integration closure — accepted mechanism, versioned prerequisite, fail-safe behaviour | **Accepted** — documentation-only reconciliation closing the "hidden child-line exclusion" half (Part 2) of the promotions-plugin milestone against `mp-commerce-promotions`'s own accepted implementation (PR #6, commit `9d9d8a1`). No UCB code change. Part 1 (default sitewide-campaign kit exclusion) remains open — see the milestone section |
 
 Full ADR text lives in [`docs/adr/`](adr/).
 
@@ -1352,53 +1354,52 @@ traceability in v1.
 
 ---
 
-## Promotions-plugin milestone — default kit exclusion (closes C15) and hidden-component exclusion (ADR-0007)
+## Promotions-plugin milestone — default kit exclusion (closes C15) and hidden-component exclusion (ADR-0007, ADR-0008)
 
-An admin report listing kit ids enforces nothing; every existing and
-future campaign could still omit the exclusion. Rather than weaken the
-settled policy, add a **separate promotions-plugin milestone** that
-implements default kit exclusion before launch.
+This milestone has two independent parts. **Part 2 is closed** (ADR-0008).
+**Part 1 remains open** — tracked here, not invented as done.
 
-**Kit-level exclusion, unaffected by the architecture decision:**
-- The promotions plugin owns the rule natively, keyed on a documented
-  "is a kit" product meta value — **no runtime plugin dependency in either
-  direction**, but a documented **data-contract dependency**.
-- Default: kit products are excluded from sitewide percentage campaigns. A
-  campaign must **explicitly opt kits in**.
-- **Keeps working when the bundling plugin is inactive**, a safety
-  property. Product meta persists in the database independently of plugin
-  state (C18).
+**Part 1 — kit-level default sitewide-campaign exclusion (closes C15):
+open, not yet evidenced as implemented.** An admin report listing kit ids
+enforces nothing; every existing and future campaign could still omit the
+exclusion. The settled policy: the promotions plugin owns the rule
+natively, keyed on a documented "is a kit" product meta value — no runtime
+plugin dependency in either direction, a documented data-contract
+dependency only; kit products are excluded from sitewide percentage
+campaigns by default, and a campaign must explicitly opt kits in; this
+keeps working when the bundling plugin is inactive, since product meta
+persists independently of plugin state (C18). **As of this document's
+latest reconciliation, no evidence of this specific default-exclusion
+behaviour was found in `mp-commerce-promotions`'s source** (a repository
+search for a kit-meta-keyed default-campaign-exclusion found nothing). This
+is not a UCB blocker — a kit product working correctly (purchasable, stock-
+safe, fulfillable) does not depend on it — but it is a genuinely open item
+in the promotions plugin's own scope, distinct from Part 2 below, and
+should not be assumed done merely because Part 2 is.
 
-**New, Architecture B-specific: hidden child-line exclusion (ADR-0007,
-closes a real leak found and closed live by S1-D).** The promotions
-plugin's cart-context projector projects every cart row unconditionally,
-including a hidden zero-priced child's real product id and categories — a
-product/category/quantity condition targeting a kit component was
-live-proven to fire off the hidden child alone, with **no genuine
-standalone purchase** of that component in the cart. Fix, live-proven
-closed, touching three files:
+**Part 2 — hidden child-line exclusion (ADR-0007, closed by ADR-0008):
+CLOSED.** Architecture B's core property — components are real, hidden
+WooCommerce cart/order lines — means any consumer that iterates real cart
+rows unconditionally, including a hidden zero-priced child's real product
+id and categories, can have a product/category/quantity condition
+targeting a kit component fire off the hidden child alone, with no genuine
+standalone purchase of that component in the cart. `mp-commerce-promotions`
+has independently designed, implemented, tested (including a live,
+disposable-environment acceptance run through both classic and Store API
+entry paths), and merged its own accepted fix for this — see
+**ADR-0008** for the full closure record, the exact mechanism actually
+shipped (a single upstream cart-context exclusion, not the three-file,
+per-matcher shape this document originally proposed from spike S1-D's
+mocked-engine finding), the versioned prerequisite, and the fail-safe
+behaviour when that plugin is absent or running an older version. No new
+promotion is ever made ineligible by this fix — it is a per-row exclusion,
+not a new *condition type*, so it does not trigger the promotions engine's
+"unrecognised type" hazard (V7).
 
-1. The cart-context builder, immediately after the existing free-gift
-   field assignment: add an `is_kit_component` boolean sourced from
-   cart-item meta.
-2. The product/variation cart-item matcher used by product-in-cart and
-   product-quantity conditions: return `false` early when
-   `is_kit_component` is set.
-3. The category matcher used by category-in-cart conditions, and the
-   category-quantity condition (which does not route through the shared
-   matcher): skip past rows with `is_kit_component` set.
-
-Live-proven, all four condition types: closed for a kit-only cart, while a
-**genuine** standalone purchase of the same product still correctly fires
-every condition, and a sitewide "minimum subtotal" condition (reading cart
-subtotal, not per-item rows) is unaffected and correctly counts the parent
-kit's real price. No new promotion is ever made ineligible — this is a
-per-row exclusion, not a new *condition type*, so it does not trigger the
-promotions engine's "unrecognised type" hazard (V7).
-
-This milestone gates launch alongside the fulfillment-plugin one. Decision
-6 (no promotions integration in v1) is preserved: this is promotions-side
-work with no code dependency in either direction.
+Decision 6 (no promotions integration in v1) is preserved by both parts:
+this is entirely promotions-side work, with no code dependency in either
+direction — see ADR-0008 for why Part 2 is deliberately **not** gated the
+way the fulfillment-plugin milestone is (ADR-0006).
 
 ---
 
@@ -1427,7 +1428,7 @@ reconciliation (where the real line must be visible and real).
 
 | Consumer | Real seam | What it does |
 |---|---|---|
-| Promotions condition engine | cart-context/cart-item-selector edits (above) | excludes hidden children from product/category/quantity condition matching |
+| Promotions condition engine | single upstream cart-context exclusion in that plugin's own codebase — see ADR-0008, closed | excludes hidden children from product/category/quantity condition matching and discount allocation |
 | WooCommerce core coupon eligibility | `woocommerce_coupon_get_items_to_validate` (real, documented core filter) | excludes hidden children from product/category coupon-restriction validation — closes a genuine leak where a **free-shipping** coupon restricted to a component was validated eligible off the hidden child alone, unlocking a real benefit with no genuine standalone purchase |
 | WooCommerce core shipping | the existing cart-totals price-zeroing hook, extended to weight/dimensions/shipping-class | prevents double-counted weight, dimensions and shipping-class bucketing (residual: a quantity-based flat-rate formula needs a separate shipping-package fix if configured) |
 | WooCommerce core Analytics | a scope-flag order-items filter, bracketed around the real recurring Analytics batch action | prevents units-sold/gross-revenue pollution from hidden children (net revenue was already correctly zero) |
@@ -1455,10 +1456,10 @@ being declared compatible with kits.
 | Element | Publisher | Consumer |
 |---|---|---|
 | Kit snapshot schema (parent line) | this plugin | fulfillment plugin (skip guard), storefront (Contents line) |
-| Component/parent-item-id/snapshot-version/position meta (child lines) | this plugin | promotions, coupons/shipping/analytics exclusion filters (ADR-0007), fulfillment plugin (implicitly, via the parent-skip guard only) |
+| Component/parent-item-id/snapshot-version/position meta (child lines) | this plugin | promotions (ADR-0007, ADR-0008, closed), coupons/shipping/analytics exclusion filters (ADR-0007), fulfillment plugin (implicitly, via the parent-skip guard only) |
 | Parent-skip contract | this plugin documents the kit marker as the skip key | fulfillment plugin, independently (no expansion, no version negotiation needed) |
 | Readiness signal | fulfillment plugin answers | this plugin gates purchasability |
-| "Is a kit" product meta | this plugin | promotions (data-contract dependency, no code dependency) |
+| "Is a kit" product meta | this plugin | promotions (data-contract dependency, no code dependency; default sitewide-campaign exclusion — Part 1 of the promotions-plugin milestone — remains open, see that section) |
 | Capability signal (persisted option + readiness handshake) | this plugin, only after successful init | host safety-guard MU-plugin |
 
 **Unknown snapshot version:** the fulfillment plugin fails closed on the
@@ -1646,6 +1647,15 @@ implementation → validation → closure`.
   each still require their own separate implementation authorization before
   any code is written.
 
+**Status update, later than this freeze (kept here rather than rewriting
+the historical bullets above):** M0 and M1 have each since been separately
+authorized, implemented, and validated — see `docs/m1-closure.md` for the
+full implementation and validation record. ADR-0008 (added later, not part
+of this original freeze) closes Part 2 of the promotions-plugin milestone
+against `mp-commerce-promotions`'s own accepted implementation. Part 1 of
+that milestone, and the fulfillment-plugin and host-guard milestones,
+remain open in their own repositories.
+
 ---
 
 ## Acceptance coverage
@@ -1803,14 +1813,18 @@ implementation → validation → closure`.
   standalone purchase of that component; the same condition **must** still
   fire for a genuine standalone purchase; a sitewide/eligibility condition
   reading cart subtotal must still correctly count the parent kit's real
-  price.
+  price. **Satisfied — verified live against the real `mp-commerce-promotions`
+  codebase (not a mock), both classic and Store API entry paths, by that
+  repository's own PR #6; see ADR-0008.**
 - Analytics: order-product-lookup rows for hidden children must show zero
   units-sold **and** zero gross revenue after the exclusion filter is
   applied (S1-D found gross revenue was polluted too, via allocated
   shipping, not only quantity) — verify against the real recurring
   Analytics batch action during deployment acceptance, since S1-D's
   disposable container could not reliably trigger that specific batch
-  end-to-end.
+  end-to-end. **Satisfied — subsequently verified live against the real
+  recurring `wc-admin_process_pending_orders_batch` action; see
+  `docs/m1-closure.md`, "Acceptance validation pass" item 4 (PASS).**
 - Cart block page: the hydration payload (server-rendered JSON embedded
   for client-side rehydration) must contain only the parent line — verify
   via direct inspection of the hydration response, not only the rendered
@@ -1907,20 +1921,32 @@ tracked into M1/fulfillment/promotions implementation**
    still double-counts hidden children — avoid that specific rate
    configuration, or implement the shipping-package filtering fix if a
    real deployment requires it.
-7. The Analytics exclusion fix's automatic triggering via WooCommerce's
+7. ~~The Analytics exclusion fix's automatic triggering via WooCommerce's
    real recurring Analytics batch action was not independently confirmed
    end-to-end in a short-lived disposable container — verify during
-   deployment acceptance testing.
-8. The literal, visible-HTML Blocks-Cart leak S1-C described was not
+   deployment acceptance testing.~~ **Satisfied — see `docs/m1-closure.md`,
+   "Acceptance validation pass" item 4 (PASS): the real recurring
+   `wc-admin_process_pending_orders_batch` action was run to completion,
+   with hidden children genuinely absent (not zero-valued) from the
+   resulting lookup rows.**
+8. ~~The literal, visible-HTML Blocks-Cart leak S1-C described was not
    reproduced in the exact WooCommerce/WordPress configuration used (the
    Cart block's server-rendered markup is genuinely empty in that
    configuration); the real underlying leak — the unfiltered hydration
-   JSON — is proven and fixed regardless.
+   JSON — is proven and fixed regardless.~~ **Satisfied — see
+   `docs/m1-closure.md`, "Acceptance validation pass" item 1 (PASS): a
+   real Store API/Blocks HTTP round-trip confirmed zero hidden child lines
+   in the cart/add-item response, the checkout response, and the REST v3
+   orders response (`tests/Unit/PresentationStoreApiStrippingTest.php`).**
 9. Store API checkout was verified with Cash on Delivery only; an
-   asynchronous/redirect payment gateway was not exercised.
+   asynchronous/redirect payment gateway was not exercised. **Still open**
+   — `docs/m1-closure.md`'s later acceptance pass also used Cash on
+   Delivery/direct checkout completion; no async/redirect gateway has been
+   exercised as of this reconciliation.
 10. Coupon/fee exclusion beyond the specific product/category-restriction
     and free-shipping cases S1-D tested was not separately re-verified
-    against every coupon type.
+    against every coupon type. **Still open** — unchanged by the later
+    acceptance pass.
 11. Third-party listener deduplication is no longer a concern for stock
     operations (no outbox under Architecture B). **Superseded (V17/C25):**
     this item used to track a concurrency gap in the now-rejected custom
@@ -1931,10 +1957,16 @@ tracked into M1/fulfillment/promotions implementation**
     unmodified and unaugmented by this plugin — the same protection (and
     the same limits on it) any ordinary product's refund has today. Not a
     gap this plugin needs to close.
-12. The order-storage compatibility mode was not toggled on for every
+12. ~~The order-storage compatibility mode was not toggled on for every
     S1-C/S1-D test (S1-A/S1-B's own concerns were tested both ways;
     several of S1-D's fixes were not independently re-verified under that
-    mode).
+    mode).~~ **Satisfied — see `docs/m1-closure.md`, "Acceptance validation
+    pass" item 2 (PASS): a separate, wholly HPOS-on disposable environment
+    (tables created and enabled before any product/order existed) verified
+    correctly-linked order lines, correct stock reduction, native partial
+    refund with correct derived quantities and refund-ordering, and the
+    deactivation-lock policy — genuinely HPOS-backed, confirmed absent from
+    `wp_posts`.**
 
 **Accepted for v1**
 
@@ -1954,7 +1986,13 @@ tracked into M1/fulfillment/promotions implementation**
 - Variation components; nested bundles; subscriptions.
 - Component-derived shipping weight/dimensions — M1 sets kit weight
   explicitly.
-- A generic, registerable-condition seam in the promotions plugin.
+- ~~A generic, registerable-condition seam in the promotions plugin.~~
+  **Rejected, not deferred — see ADR-0008.** `mp-commerce-promotions`'s own
+  ADR-0001 explicitly rejected an extension API / self-registering
+  condition type for this integration, for the same "unrecognised
+  condition type makes the whole promotion ineligible" reason this
+  document's own V7 finding already named. Nothing of this shape remains
+  to revisit.
 - A shipping-package filtering fix for quantity-based flat-rate shipping
   methods (open item 6) — implement only if a real deployment configures
   that specific rate shape.

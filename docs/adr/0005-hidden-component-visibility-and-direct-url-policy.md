@@ -2,8 +2,8 @@
 
 ## Status
 
-Ready for final review — accepted upon merge of the documentation-freeze
-pull request, not before. Unaffected by the Architecture A → B decision
+**Accepted** — merged as part of the documentation-freeze pull request
+(PR #1, `docs/architecture-freeze`). Unaffected by the Architecture A → B decision
 (this ADR governs the **catalogue product page** for a component,
 independent of ADR-0002's order/cart *line-item* mechanism).
 
