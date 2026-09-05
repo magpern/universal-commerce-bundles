@@ -588,6 +588,7 @@ visible text in a given theme/config.
 | C24 | Writing the operation id onto the refund after the core call makes it a durable reconciliation target (S1-E) | **Wrong.** By then the refund row, its line items and the restock are all durable; a process killed in that interval leaves a real refund and a real restock with no identity, and recovery duplicates both — live-proven. Hooking the core action documented as firing "before save" does not fix it either, because the refund is already persisted by then (V15). Corrected in S1-F: the identity is attached on the object-save action that precedes the data store's `create()`, and that save is bracketed in a transaction |
 | C25 | UCB should own a custom refund idempotency/orchestration subsystem (S1-E/S1-F: operation ledger, two-layer locking, transactions, reconciliation sweep) | **Rejected by product-owner decision (V17), not closed by further engineering.** A generic v1 bundles plugin does not get a custom refund-orchestration subsystem. Replaced by the narrow native-refund-only scope (V17), proven sufficient by spike S1-G (PASS). S1-E and S1-F are retained as evidence for why the custom approach doesn't fit a generic v1 plugin — valuable history — not as an implementation design that was ever accepted |
 | C26 | The promotions plugin's hidden-child exclusion is a three-file fix: an `is_kit_component` field added to its cart-context projection, checked separately at each condition-matching point (spike S1-D, against a mocked promotions engine) | **Superseded by the real implementation, not merely refined.** `mp-commerce-promotions`'s own accepted design (that repository's ADR-0001, PR #6, merged commit `9d9d8a1`) excludes the marked row once, upstream, at its cart-context *construction* step, before any condition/matcher/allocation code runs — not as a field checked separately at each matching point. The invariant this plugin published (a hidden component line must never be treated as a genuine selection) is unchanged and confirmed correct; only the mocked spike's guess at the other repository's internal mechanism was wrong, which is expected since promotions owns that mechanism natively (see ADR-0008) |
+| C27 | The promotions-plugin milestone should implement a default sitewide-campaign kit exclusion (kit products excluded from percentage campaigns unless explicitly opted in), closing C15 | **Superseded by a later, opposite decision — not an open item.** `mp-commerce-promotions`'s own accepted design has the priced kit-parent line (the only line this proposal could apply to) follow ordinary promotion rules like any other product, with no new automatic "kits cannot be promoted" policy — that repository's own ADR-0001 records this explicitly as a non-goal. A default sitewide-exclusion policy for kits would contradict that decision. See ADR-0008 |
 
 ---
 
@@ -859,7 +860,7 @@ note above.
 | ADR-0005 | Hidden-component visibility and direct-URL policy | **Accepted** — unaffected by the architecture decision |
 | ADR-0006 | Cross-plugin rollout / readiness gate, and inactive-plugin safety | **Accepted**, narrowed — purchasability guard/capability handshake/deactivation-lock policy retained unchanged; the custom-status ownership term and background-stock-deferral responsibility are removed — proven unnecessary for stock-lifecycle correctness under Architecture B |
 | ADR-0007 | Cross-cutting cart/order-line exclusion contract (promotions, coupons, shipping, analytics) | **Accepted** — a hidden kit-component line must never be treated as a genuine customer selection by any cart/order/coupon/shipping/analytics consumer, native or third-party. **Its "Promotions condition engine" row's specific mechanism is superseded by ADR-0008** — the invariant is unchanged; every other row is unaffected |
-| ADR-0008 | Promotions-plugin integration closure — accepted mechanism, versioned prerequisite, fail-safe behaviour | **Accepted** — documentation-only reconciliation closing the "hidden child-line exclusion" half (Part 2) of the promotions-plugin milestone against `mp-commerce-promotions`'s own accepted implementation (PR #6, commit `9d9d8a1`). No UCB code change. Part 1 (default sitewide-campaign kit exclusion) remains open — see the milestone section |
+| ADR-0008 | Promotions-plugin integration closure — accepted mechanism, versioned prerequisite, plain-stated behaviour when absent/outdated | **Accepted** — documentation-only reconciliation. Closes the promotions-plugin milestone's hidden child-line exclusion against `mp-commerce-promotions`'s own accepted implementation (PR #6, commit `9d9d8a1`); no UCB code change. Also records that the milestone's originally proposed default sitewide-campaign kit exclusion is **superseded** (C27) by that repository's own decision that the kit parent follows ordinary promotion rules — not left open |
 
 Full ADR text lives in [`docs/adr/`](adr/).
 
@@ -1354,31 +1355,30 @@ traceability in v1.
 
 ---
 
-## Promotions-plugin milestone — default kit exclusion (closes C15) and hidden-component exclusion (ADR-0007, ADR-0008)
+## Promotions-plugin milestone — hidden-component exclusion (ADR-0007, ADR-0008); default kit exclusion superseded (C15, C27)
 
-This milestone has two independent parts. **Part 2 is closed** (ADR-0008).
-**Part 1 remains open** — tracked here, not invented as done.
+This milestone originally had two parts. **Both are now resolved — one
+closed by real implementation, one superseded by a later, opposite
+decision. Neither is open.**
 
-**Part 1 — kit-level default sitewide-campaign exclusion (closes C15):
-open, not yet evidenced as implemented.** An admin report listing kit ids
-enforces nothing; every existing and future campaign could still omit the
-exclusion. The settled policy: the promotions plugin owns the rule
-natively, keyed on a documented "is a kit" product meta value — no runtime
-plugin dependency in either direction, a documented data-contract
-dependency only; kit products are excluded from sitewide percentage
-campaigns by default, and a campaign must explicitly opt kits in; this
-keeps working when the bundling plugin is inactive, since product meta
-persists independently of plugin state (C18). **As of this document's
-latest reconciliation, no evidence of this specific default-exclusion
-behaviour was found in `mp-commerce-promotions`'s source** (a repository
-search for a kit-meta-keyed default-campaign-exclusion found nothing). This
-is not a UCB blocker — a kit product working correctly (purchasable, stock-
-safe, fulfillable) does not depend on it — but it is a genuinely open item
-in the promotions plugin's own scope, distinct from Part 2 below, and
-should not be assumed done merely because Part 2 is.
+**Kit-level default sitewide-campaign exclusion (closes C15): superseded,
+not open — see C27.** This document originally proposed that kit products
+be excluded from sitewide percentage campaigns by default, requiring a
+campaign to explicitly opt kits back in. `mp-commerce-promotions`'s own
+accepted design for the priced kit-parent line — the only line this policy
+could ever apply to, since components are hidden and never commercially
+selectable — is the opposite: **the kit parent follows ordinary promotion
+rules like any other product, with no new automatic "kits cannot be
+promoted" policy.** That repository's own ADR-0001 records this explicitly
+as a non-goal. A default sitewide-exclusion policy for kits would
+contradict that accepted decision, not merely be an unimplemented nice-to-
+have alongside it — so this document's original C15-closing proposal is
+corrected (C27), not left pending. `mp-commerce-promotions`'s own
+kit-level default-exclusion is not part of the accepted design and should
+not be implemented there under this name.
 
-**Part 2 — hidden child-line exclusion (ADR-0007, closed by ADR-0008):
-CLOSED.** Architecture B's core property — components are real, hidden
+**Hidden child-line exclusion (ADR-0007, closed by ADR-0008): CLOSED.**
+Architecture B's core property — components are real, hidden
 WooCommerce cart/order lines — means any consumer that iterates real cart
 rows unconditionally, including a hidden zero-priced child's real product
 id and categories, can have a product/category/quantity condition
@@ -1396,10 +1396,13 @@ promotion is ever made ineligible by this fix — it is a per-row exclusion,
 not a new *condition type*, so it does not trigger the promotions engine's
 "unrecognised type" hazard (V7).
 
-Decision 6 (no promotions integration in v1) is preserved by both parts:
-this is entirely promotions-side work, with no code dependency in either
-direction — see ADR-0008 for why Part 2 is deliberately **not** gated the
-way the fulfillment-plugin milestone is (ADR-0006).
+Decision 6 (no promotions integration in v1) is preserved: this is
+entirely promotions-side work, with no code dependency in either direction
+— see ADR-0008 for why the hidden child-line exclusion is deliberately
+**not** gated by any capability-handshake mechanism at all (ADR-0006's own
+gate is UCB's own liveness signal to an independent host guard, not a
+contract with any other plugin — see ADR-0008 for the precise
+distinction).
 
 ---
 
@@ -1459,7 +1462,7 @@ being declared compatible with kits.
 | Component/parent-item-id/snapshot-version/position meta (child lines) | this plugin | promotions (ADR-0007, ADR-0008, closed), coupons/shipping/analytics exclusion filters (ADR-0007), fulfillment plugin (implicitly, via the parent-skip guard only) |
 | Parent-skip contract | this plugin documents the kit marker as the skip key | fulfillment plugin, independently (no expansion, no version negotiation needed) |
 | Readiness signal | fulfillment plugin answers | this plugin gates purchasability |
-| "Is a kit" product meta | this plugin | promotions (data-contract dependency, no code dependency; default sitewide-campaign exclusion — Part 1 of the promotions-plugin milestone — remains open, see that section) |
+| "Is a kit" product meta | this plugin | promotions (data-contract dependency, no code dependency; the kit parent follows ordinary promotion rules — the originally proposed default sitewide-campaign exclusion is superseded, see the milestone section and C27) |
 | Capability signal (persisted option + readiness handshake) | this plugin, only after successful init | host safety-guard MU-plugin |
 
 **Unknown snapshot version:** the fulfillment plugin fails closed on the
@@ -1651,10 +1654,12 @@ implementation → validation → closure`.
 the historical bullets above):** M0 and M1 have each since been separately
 authorized, implemented, and validated — see `docs/m1-closure.md` for the
 full implementation and validation record. ADR-0008 (added later, not part
-of this original freeze) closes Part 2 of the promotions-plugin milestone
-against `mp-commerce-promotions`'s own accepted implementation. Part 1 of
-that milestone, and the fulfillment-plugin and host-guard milestones,
-remain open in their own repositories.
+of this original freeze) closes the promotions-plugin milestone in full,
+against `mp-commerce-promotions`'s own accepted implementation: the hidden
+child-line exclusion by real implementation, and the originally proposed
+default sitewide-campaign kit exclusion by supersession (C27), not left
+open. The fulfillment-plugin and host-guard milestones remain open in
+their own repositories.
 
 ---
 

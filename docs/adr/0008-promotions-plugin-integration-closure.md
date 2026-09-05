@@ -1,11 +1,15 @@
-# ADR-0008: Promotions-plugin integration closure — accepted mechanism, versioned prerequisite, fail-safe behaviour
+# ADR-0008: Promotions-plugin integration closure — accepted mechanism, versioned prerequisite, plain-stated behaviour when absent/outdated
 
 ## Status
 
-**Accepted.** Closes the "promotions-plugin milestone"
-(`docs/ARCHITECTURE.md`, "Promotions-plugin milestone" section) and
-partially supersedes ADR-0007's "Promotions condition engine" row only
-(see that ADR's Status section) — no other row of ADR-0007 is affected.
+**Accepted.** Closes the "promotions-plugin milestone" in full
+(`docs/ARCHITECTURE.md`, "Promotions-plugin milestone" section): the
+hidden child-line exclusion is closed by real implementation, and the
+originally proposed default sitewide-campaign kit exclusion is superseded
+(C27) — not left open — by `mp-commerce-promotions`'s own decision that the
+kit parent follows ordinary promotion rules. Also partially supersedes
+ADR-0007's "Promotions condition engine" row only (see that ADR's Status
+section) — no other row of ADR-0007 is affected.
 
 This ADR is a **documentation-only reconciliation**, not new UCB
 implementation work. It records, on the UCB side, that the companion
@@ -85,14 +89,20 @@ ownership this architecture always assigned to it.
    between both entry paths, once a genuine standalone purchase of the
    component was added.
 4. **The integration is a versioned, data-contract prerequisite — not a
-   runtime code dependency, and explicitly not a purchasability gate like
-   ADR-0006's fulfillment-readiness handshake.** These are deliberately
-   different in kind:
-   - **Fulfillment (ADR-0006):** an unfulfillable order is a real
-     operational failure (a picking list references stock that was never
-     actually reserved for a specific customer's kit), so UCB gates kit
-     *purchasability* on a request-local readiness handshake from a
-     compatible fulfillment plugin.
+   runtime code dependency, and explicitly not a capability-handshake
+   purchasability gate like ADR-0006's.** These are deliberately different
+   in kind:
+   - **UCB's own liveness (ADR-0006):** ADR-0006 is not a fulfillment-
+     plugin contract at all — the fulfillment plugin has no runtime
+     readiness contract with UCB. It is a self-referential handshake: UCB
+     itself emits `ucb_runtime_ready` once, as the final step of its own
+     successful bootstrap; an independent host must-use plugin (never this
+     plugin's own code, since code that has failed cannot protect
+     anything) listens for that signal and blocks kit purchase whenever it
+     is absent — i.e., whenever UCB itself is inactive, removed, or failed
+     to fully initialise. Its purpose is to keep a kit non-purchasable if
+     *UCB* cannot currently validate composition/availability, independent
+     of any other plugin.
    - **Promotions (this ADR):** an incorrect promotion decision is a
      pricing/discount-accuracy defect confined entirely to the promotions
      plugin's own domain. It never affects stock, reservation, reduction,
@@ -116,40 +126,59 @@ ownership this architecture always assigned to it.
    as a factual, evidenced deployment-readiness note (see "Consequences"),
    not resolved by this ADR, since cutting a release in that repository is
    outside this repository's authority and outside this ADR's scope.
-5. **Fail-safe behaviour when the promotions plugin is absent, inactive,
-   or present at an older version without the fix: fails *open* for
-   purchasability, fails *closed* only for promotion-eligibility
-   correctness.**
-   - **Absent or inactive:** no promotions plugin runs at all, so no
-     condition can incorrectly fire off a hidden child — there is nothing
-     to fail. The kit remains fully purchasable and functional; it simply
-     participates in zero promotions, exactly like every other product
-     when no promotions plugin is present.
-   - **Present, active, but older than the fix (pre-`9d9d8a1`):** the
-     kit remains fully purchasable and functional. The bounded, known
-     degradation is exactly the pre-fix behaviour ADR-0007 and this ADR's
-     Context both describe: a hidden component child *may* incorrectly
-     satisfy a product/category/quantity condition, or incorrectly
-     receive an allocated discount, with no genuine standalone purchase
-     of that component present. This is a promotion-accuracy defect on
-     the promotions plugin's own side, not a UCB defect and not a
-     stock/fulfillment/order-integrity hazard — UCB's own cart/order
-     construction, stock lifecycle, and refund behaviour are completely
-     unaffected regardless of which promotions-plugin version, if any, is
-     installed.
+5. **Stated plainly, for each case, rather than forced into a single
+   fail-open/fail-closed label — the two cases are not the same shape:**
+   - **Promotions plugin absent or inactive:** no promotions plugin runs
+     at all, so no condition can evaluate, correctly or incorrectly. The
+     kit remains fully purchasable and functional; it simply participates
+     in zero promotions, exactly like every other product when no
+     promotions plugin is present. This is not a failure state to label
+     open or closed — there is nothing running to fail.
+   - **Promotions plugin present and active, but older than the fix
+     (pre-`9d9d8a1`): fails *open* on promotion eligibility — the unsafe
+     direction, not the safe one.** The kit remains fully purchasable and
+     functional, but a hidden component child *may incorrectly qualify* a
+     product/category/quantity condition, or *incorrectly receive* an
+     allocated discount, with no genuine standalone purchase of that
+     component present — exactly the pre-fix leak ADR-0007 and this ADR's
+     Context both describe. That is a real, if narrow, revenue/eligibility
+     defect, correctly named fail-*open* (something wrongly permitted),
+     never fail-closed. It is bounded entirely to the promotions plugin's
+     own domain: UCB's own cart/order construction, stock lifecycle, and
+     refund behaviour are completely unaffected regardless of which
+     promotions-plugin version, if any, is installed.
    - **No UCB-side detection of promotions version or activation state is
      implemented, or should be implemented** — consistent with decision 4
      above and with `docs/ARCHITECTURE.md`'s repeated "no runtime plugin
      dependency in either direction" statement.
+6. **The originally proposed default sitewide-campaign kit exclusion
+   (`docs/ARCHITECTURE.md`'s "Promotions-plugin milestone" section, closing
+   C15) is superseded, not left open (C27).** That proposal — kit products
+   excluded from sitewide percentage campaigns by default, opt-in only —
+   could only ever apply to the priced kit-parent line, since components
+   are hidden and never a genuine, independent customer selection.
+   `mp-commerce-promotions`'s own accepted design for that parent line is
+   the opposite: it follows ordinary promotion rules like any other
+   product, with no new automatic "kits cannot be promoted" policy — that
+   repository's own ADR-0001 records this explicitly as a non-goal. A
+   default sitewide-exclusion policy for kits would contradict that
+   decision, not merely sit unimplemented alongside it. This ADR therefore
+   corrects the milestone's original proposal (C27) rather than carrying
+   it forward as an open item, and `docs/ARCHITECTURE.md`'s milestone
+   section and cross-plugin contract table are updated accordingly.
 
 ## Rejected alternatives
 
 - **A UCB-side readiness/version-handshake gate for promotions, mirroring
-  ADR-0006's fulfillment pattern.** Rejected: promotion-eligibility
-  accuracy is not a stock- or fulfillment-safety property, so there is no
-  operational harm proportionate to justify blocking a legitimate purchase
-  over it, and building the gate would itself create the runtime
-  dependency the architecture forbids in both directions.
+  ADR-0006's shape** (a signal the host guard checks before allowing a
+  purchase). Rejected: promotion-eligibility accuracy is not a stock- or
+  fulfillment-safety property, so there is no operational harm
+  proportionate to justify blocking a legitimate purchase over it, and
+  building the gate would itself create the runtime dependency the
+  architecture forbids in both directions. Note that ADR-0006's actual
+  gate is UCB's own liveness signal to an independent host guard, not a
+  contract with any other plugin — this rejected alternative would have
+  been a new kind of cross-plugin gate, not a reuse of an existing one.
 - **UCB implementing its own promotions-exclusion logic, or shipping a
   bundled/optional promotions integration.** Rejected — out of scope for a
   generic kits plugin (settled decision 6); ownership stays entirely with
@@ -171,12 +200,24 @@ ownership this architecture always assigned to it.
   `v0.5.4` is an ancestor of, and therefore predates, the fix by 14
   commits. Stating the prerequisite as a version number rather than the
   specific commit would misrepresent the current released state.
+- **Recording the default sitewide-campaign kit exclusion as a genuinely
+  open, not-yet-implemented item, tracked forward for a future
+  implementation.** Rejected — that would misstate the situation as a
+  scheduling gap rather than what it actually is: the proposal is
+  incompatible with `mp-commerce-promotions`'s own accepted decision that
+  the kit parent receives ordinary promotion treatment. There is no future
+  implementation to schedule; the correct record is supersession (C27), not
+  an open item.
 
 ## Consequences
 
-- The "Promotions-plugin milestone" in `docs/ARCHITECTURE.md` is closed.
-  No further UCB documentation or code work is required for this
-  integration.
+- The "Promotions-plugin milestone" in `docs/ARCHITECTURE.md` is closed in
+  full — both the hidden child-line exclusion (closed by real
+  implementation) and the default sitewide-campaign kit exclusion (closed
+  by supersession, C27, not left open). No further UCB documentation or
+  code work is required for this integration, and no further work is
+  expected in `mp-commerce-promotions` under the superseded proposal's
+  name either.
 - **Deployment-readiness note, not a UCB blocker:** any site wanting the
   hidden-component exclusion in production must run
   `mp-commerce-promotions` from a build that includes commit `9d9d8a1` or
