@@ -1,6 +1,8 @@
 # M1 — Fixed Kits Core: Implementation & Validation Record
 
-Status: implementation complete, validated (automated + live), **not** released.
+Status: implementation complete, validated (automated + live + a later
+acceptance pass closing all six previously-open live-HTTP/HPOS-on/crash-
+injection gaps — see "Acceptance validation pass" below), **not** released.
 Do not read this as release-readiness — no tag, no GitHub release, no
 deployment of any kind has happened as part of this closure record.
 
@@ -104,6 +106,9 @@ this branch's actual code was installed and exercised against it with real
 captured output.
 
 ### Automated (PHPUnit, 67 tests total, all passing under PHP 8.1 and 8.4)
+
+_(Grown to 72 tests by the later acceptance validation pass below — see
+"Acceptance validation pass" for the 3 tests it added.)_
 
 - The derived-availability formula, including both required backorder/
   unavailable-component combinations from the acceptance list
@@ -267,58 +272,215 @@ All three are now fixed in the committed code (see the class docblocks in
 `src/Woo/Exclusions.php`), and every scenario above was **re-run
 successfully after each fix**, not merely patched and assumed correct.
 
-### Not independently verified in this M1 pass (stated plainly, not glossed over)
+### Acceptance validation pass — the six previously-open gaps, now closed
 
-- **Store API/Blocks checkout end-to-end via a real HTTP request.** Cart
-  construction and the Store API guard's *logic* were verified (the guard
-  directly, cart construction via the same real `WC_Cart` API the Store
-  API itself calls), but a full HTTP round-trip through the Store API
-  checkout endpoint specifically was not performed — only classic
-  `WC_Checkout::create_order()` was exercised end-to-end for order
-  construction.
-- **HPOS (custom order tables) mode toggled on.** The disposable
-  environment had already placed legacy-storage orders by the time this
-  was attempted, and WooCommerce correctly refuses to switch the
-  authoritative storage table while orders are unsynced; re-attempting
-  this against a fresh environment before a real deployment is
-  recommended. All order interaction in this codebase goes through the
-  standard `WC_Order`/`get_items()`/meta API (never a direct table query),
-  which is the storage-mode-portable way to write this — but the toggle-on
-  mode itself was not independently re-confirmed live, matching S1-D's own
-  stated limitation on this same point.
-- **The refund crash-window test** (a real process kill between the
-  refund's save and the post-save restock action completing, as S1-G
-  performed) — the *ordering* half of this property was live-confirmed
-  (above); the *crash-injection* half was not repeated in this pass, given
-  time constraints. The design is unchanged from S1-G's already-proven
-  mechanism (same two hooks, same responsibility split), so no new risk is
-  introduced, but this specific property was not re-demonstrated with an
-  injected kill in M1's own validation.
-- **Multicurrency**, **VAT-specific correctness on a non-zero-rated tax
-  class**, **Analytics batch action end-to-end** (the scope-flag mechanism
-  itself was verified directly against the real bracketing pattern in
-  code, not against a real fired `wc-admin_process_pending_orders_batch`
-  Action Scheduler run), **`qty_per_kit > 1` combined with `kit_qty > 1`
-  in the same cart** (qty-per-kit > 1 alone, and kit_qty > 1 alone, were
-  each verified; not the combination), and **canonical-kit-redirect / 404
-  behaviour for direct component-page visits** were not exercised in this
-  pass.
+The six items below were the only ones this document's first pass had
+marked "not independently verified" against real HTTP/HPOS-on/crash-
+injection evidence (the rest of that original list — Store API/Blocks
+checkout, HPOS-on, the crash window, multicurrency, VAT, the Analytics
+batch action, and the combined-quantity case — is fully superseded by
+this section). Environment: a fresh disposable WordPress 7.0.2 +
+WooCommerce 11.0.1 + MariaDB 11.8.8 stack (a second, separate instance
+stood up specifically for the HPOS case), no ports published to the host
+except a single `127.0.0.1`-bound HTTP port for genuine Store API HTTP
+requests, this branch's working tree bind-mounted read-only, all resources
+disposable and torn down afterward. Real `universal-multicurrency` 1.2.0
+(the exact version cited in docs/ARCHITECTURE.md's own spike record) was
+loaded read-only for the multicurrency case.
+
+**1. Store API/Blocks HTTP round-trip — PASS (after 3 defects fixed).**
+Genuine `POST`/`GET` HTTP requests (no direct PHP method calls) against
+`/wc/store/v1/cart` and `/wc/store/v1/checkout` proved: adding a kit
+(`kit_qty=3`, `qty_per_kit` 1 and 2) created one parent cart line plus two
+correctly-linked, correctly-quantified real child cart lines (verified
+against the live WooCommerce session row, not just the API response); a
+direct child-cart-item `update-item` request was rejected with a clean
+`400 woocommerce_rest_cart_component_quantity_locked`; a parent-quantity
+`update-item` request correctly rescaled both children server-side with no
+duplicate or orphaned line; a completed checkout produced a real order
+with the parent and two children correctly linked by real `order_item_id`,
+the parent's `_ucb_kit` snapshot present, correct stock reduction, and
+correct order totals/tax — with **zero** hidden child lines visible in
+the Store API cart/add-item response, the Store API checkout response, or
+the REST v3 `wc/v3/orders` response. Three genuine defects, findable only
+by a real HTTP round-trip (not by direct method calls or WC-class mocking),
+were found and fixed:
+  - `Presentation::stripChildrenFromResponseData()` checked
+    `$item['ucb_component']` — a key the real Store API cart-item schema
+    never contains (no extension ever wrote it), so **every** genuine
+    cart/hydration response leaked hidden child lines verbatim, contrary
+    to ADR-0007. Fixed by cross-referencing each response item's own `key`
+    against `WC()->cart->get_cart()`, where `CartConstruction` already
+    tags hidden children with `MetaKeys::LINE_COMPONENT`; the stripper now
+    also recurses one level to reach a Blocks hydration payload's nested
+    per-route bodies. Regression test:
+    `tests/Unit/PresentationStoreApiStrippingTest.php`.
+  - `StoreApiGuard::blockChildQuantityUpdates()` read `WC()->cart` at the
+    `rest_request_before_callbacks` hook point, but on a genuine Store API
+    HTTP request that property is still `null` there — the Store API's own
+    routes only load the session-backed cart from inside their own request
+    handler, which runs *after* this filter. The guard's early-return on
+    `null === WC()->cart` therefore never blocked anything on a real
+    request; it only ever "worked" against a directly-constructed
+    `WC_Cart` in earlier, non-HTTP validation. Fixed by calling
+    WooCommerce's own public `wc_load_cart()` on demand, then reading
+    `WC()->cart->get_cart()[$key]` directly rather than
+    `get_cart_item($key)` — the latter reads `$this->cart_contents`
+    directly, which core only actually populates from the session inside
+    `get_cart()`'s own first call, another gap only a real request
+    surfaced.
+  - `OrderConstruction::resolveParentLinks()` (pass 2 of parent-link
+    resolution) was wired only to `woocommerce_checkout_order_created` — a
+    classic-checkout-only hook. A real Store API checkout instead builds
+    the order via `OrderController::create_order_from_cart()` and fires a
+    differently-named `woocommerce_store_api_checkout_order_created`
+    action with the same `WC_Order` argument. Without also listening
+    there, every Store API order's child lines were permanently linked by
+    the stale cart-item key instead of the parent's real `order_item_id` —
+    reproduced live (order 14 in this pass) before the fix, corrected
+    live after it (order 14's fix-verification is order 14 itself; see
+    order 17 and the HPOS order 13 for post-fix confirmation). Fixed by
+    also registering `resolveParentLinks` on
+    `woocommerce_store_api_checkout_order_created`. Regression test:
+    `tests/Unit/OrderConstructionParentLinkResolutionTest.php` (against
+    minimal `WC_Order`/`WC_Order_Item_Product` stand-ins in
+    `tests/Fixtures/`, following the same require-on-demand pattern
+    `tests/Fixtures/WooCommerceStub.php` already uses).
+
+  All three fixes were re-verified against a fresh container restart (no
+  stale opcode/state) with the identical live HTTP sequence, and the full
+  PHPUnit/PHPCS/PHPStan suite was re-run clean (72 tests, both PHP 8.1 and
+  8.4) after each fix.
+
+**2. HPOS-on fresh-environment verification — PASS.** A second, wholly
+separate disposable stack was stood up; HPOS (`custom_order_tables`) was
+enabled — table creation + `woocommerce_custom_orders_table_enabled` =
+`yes` via WooCommerce's own `CustomOrdersTableController`/
+`DataSynchronizer` classes, the same objects its admin screen uses —
+**before** any product or order existed. A real Store API checkout then
+created the first order ever in that environment, confirmed authoritative
+in `wp_wc_orders` (and **absent** from `wp_posts`) — genuinely HPOS-backed,
+not legacy-with-sync. It produced correctly-linked parent/child order
+lines, correct stock reduction, and a subsequent native partial refund
+(restocking enabled) produced the exact derived child refund quantities
+and restocked stock by the exact matching amount, with the refund-ordering
+assertion reconfirmed under HPOS (stock unchanged at both
+`woocommerce_order_partially_refunded` and at priority 5 on
+`woocommerce_refund_created` — before UCB's own priority-10 restock
+callback — and only changed once the whole call returned). Deactivation
+locked the kit (`_ucb_locked` set); reactivation left it locked and
+non-purchasable (enforcement is a live plugin-filter concern, correctly
+absent while genuinely deactivated in a separate process, and correctly
+reapplied on reactivation); an explicit `DeactivationLock::unlock()`
+correctly revalidated and unlocked it. No code change was needed for this
+case.
+
+**3. Actual M1 refund crash-window injection — PASS, in both storage
+modes.** A real, externally-triggered `SIGKILL` (a separate `docker exec
+... kill -9 <pid>` process, not a simulated exception) was delivered to
+the live `wp eval-file` process running `wc_create_refund(...,
+restock_items: true)`, timed via a disposable-environment-only mu-plugin
+(never part of UCB) that writes a PID marker file and sleeps on the same
+real `woocommerce_refund_created` hook, at priority 5 — strictly before
+`Refunds::restockDerivedChildLines()`'s own priority-10 callback — so the
+kill genuinely lands after the refund is durable (refunds are durable by
+the time `woocommerce_refund_created` fires at all — see V15) and before
+that method has run at all, a fortiori before it completes. Reproduced in
+both legacy CPT storage and HPOS:
+  - The refund survives fully durable with the correct parent and derived
+    child refund lines (verified via `$order->get_refunds()` after the
+    kill, in a fresh process).
+  - Component stock is confirmed **unrestocked** (identical to its
+    pre-refund value).
+  - The gap is detectable via the plain WooCommerce-native operational
+    signal already documented: the order's own notes contain no "Stock
+    increased" note anywhere (only the original checkout-time "Stock
+    levels reduced" note).
+  - Direct source read (not just behavioral testing) of the current
+    `src/Woo/Refunds.php` confirms no `_ucb_refund_ops`-style ledger, no
+    lock, no transaction, and no reconciliation sweep exist anywhere in
+    the plugin (`grep` across `src/` for transaction/lock/ledger/
+    reconciliation-sweep patterns finds only `Invalidation::reconcileAll()`
+    — an unrelated composition-index rebuild routine, not a refund
+    mechanism).
+  - **Control, same environment, same kill timing:** an ordinary non-kit
+    refund (a plain Component-A-only order), killed at the equivalent point
+    relative to *its own* durability and restock (a disposable-only
+    mu-plugin hook on `woocommerce_create_refund`, before core's own
+    restock call), shows the identical durable-but-unrestocked shape
+    natively — confirming this is WooCommerce's own pre-existing limitation
+    (the same one S1-G already documented and the product owner accepted),
+    not a new one, and it was not "fixed."
+
+**4. Real Analytics batch-action execution — PASS.** WooCommerce's actual
+recurring Action Scheduler action (`wc-admin_process_pending_orders_batch`,
+confirmed by reading `OrdersScheduler.php`) was exercised for real:
+`woocommerce_analytics_scheduled_import` was set to `yes` (deferred-import
+mode, which also directly schedules the recurring batch action via
+WooCommerce's own `schedule_recurring_batch_processor()`), a fresh kit
+order and a fresh standalone (non-kit) Component-A order were created
+while deferred, confirmed **absent** from `wc_order_product_lookup`
+beforehand, then `wp action-scheduler run` executed the real due actions
+to completion (`wc-admin_process_pending_orders_batch` ran and completed
+among them). Resulting `wc_order_product_lookup` rows: the kit order has
+exactly one row (the parent, correct qty and revenue) with **no row at
+all** for either hidden component (not a zero-value row — genuinely
+absent, the strongest form of "no pollution"); the standalone order's
+Component A purchase is represented normally and unaffected. No code
+change was needed for this case.
+
+**5. Combined quantity case — PASS.** A single real cart/order used
+`qty_per_kit=2` (Component B) together with `kit_qty` values of 2, 3 and 5
+across the Store API and HPOS runs above. In every case: child cart
+quantities, persisted child order quantities, stock reduction, and (via a
+partial refund of the `kit_qty=3` order, refunding 2 of 3 kits) the
+derived partial-refund quantities all matched
+`child_refund_qty = (original_child_qty / original_parent_qty) ×
+parent_qty_refunded` exactly (e.g. original child quantities 3 and 6,
+parent qty 3, 2 kits refunded → derived −2 and −4) and
+`qty = kit_qty × qty_per_kit` construction exactly, with stock restocked
+by precisely those derived amounts.
+
+**6. VAT and multicurrency — PASS.** VAT: a non-zero-rated 25% "Standard
+VAT" tax class/rate was exercised through both a real Store API checkout
+and a real classic `WC_Checkout::create_order()` checkout; in both, only
+the parent line carried price and tax (e.g. parent total 60.00/tax 15.00
+on a 3-kit Store API order; 40.00/10.00 on a classic 2-kit order), every
+child line was exactly zero-priced and zero-taxed, and the order's total
+tax equaled exactly what was charged. Multicurrency: the real
+`universal-multicurrency` 1.2.0 plugin (the same version family cited in
+docs/ARCHITECTURE.md's own spike record) was loaded read-only, a second
+currency (EUR, manual rate 0.5) was configured through its own
+`Settings` API, and a real Store API cart/checkout using its documented
+`?currency=EUR` explicit-selection query parameter showed: the kit's
+static price converted correctly (20.00 base → 10.00 EUR, `kit_qty=2` →
+parent line 20.00 EUR); child lines remained exactly zero in the cart
+response, the persisted session cart, and the completed order (`order_id`
+17, currency `EUR`, parent total 20.00/tax 5.00, children 0); no
+component-price summation occurred at any point (the parent's total is
+its own static converted price times quantity, never a sum touching
+component prices, live-confirmed by reading the persisted session cart
+row directly).
 
 ## Repository / CI
 
 PHPCS (WordPress-Extra + WooCommerce-Core + WordPress.WP.I18n), PHPStan
-(level 5, WordPress + WooCommerce stubs), and the full PHPUnit suite (67
-tests) all pass clean under both PHP 8.1 and PHP 8.4, from a fresh clone,
+(level 5, WordPress + WooCommerce stubs), and the full PHPUnit suite (72
+tests, up from 67 — three new regression tests added by this acceptance
+pass) all pass clean under both PHP 8.1 and PHP 8.4, from a fresh clone,
 via the same Docker-based commands M0's CI workflow runs. `composer run
 package` continues to produce a distributable ZIP excluding every dev-only
 path.
 
 ## What remains before any real deployment
 
-Everything listed under "Not independently verified" above; the host
-MU-plugin guard (separate repository); the fulfillment-plugin parent-skip
-change (separate repository); the promotions-plugin exclusion (separate
-repository); a real acceptance/QA pass against a staging store; a security
-review; and, per the architecture doc's own governance section, a
-separate closure/acceptance decision — this document is an implementation
-and validation record, not a release or deployment authorization.
+**Canonical-kit-redirect / 404 behaviour for direct component-page
+visits** remains not independently re-verified live in this pass (it was
+outside this pass's six-item mandate; ADR-0005's mechanism is unchanged
+and was not touched). Otherwise: the host MU-plugin guard (separate
+repository); the fulfillment-plugin parent-skip change (separate
+repository); the promotions-plugin exclusion (separate repository); a
+real acceptance/QA pass against a staging store; a security review; and,
+per the architecture doc's own governance section, a separate
+closure/acceptance decision — this document is an implementation and
+validation record, not a release or deployment authorization.

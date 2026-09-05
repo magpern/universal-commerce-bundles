@@ -65,11 +65,36 @@ final class StoreApiGuard {
 			return $response;
 		}
 
+		if ( null === WC()->cart && function_exists( 'wc_load_cart' ) ) {
+			// Live HTTP validation (docs/m1-closure.md, acceptance case 1)
+			// found `WC()->cart` genuinely null at this filter's hook point
+			// on a real Store API request — the Store API's own routes
+			// only load the session-backed cart from inside their own
+			// callback, which runs *after* `rest_request_before_callbacks`.
+			// `wc_load_cart()` is WooCommerce's own public, documented
+			// function for exactly this ("initialize and load the cart
+			// functionality" on demand); it is idempotent (delegates to
+			// `WC()->initialize_session()`/`initialize_cart()`, both
+			// no-ops if already initialized), so calling it here has no
+			// effect on requests that reach this point with the cart
+			// already loaded.
+			wc_load_cart();
+		}
+
 		if ( null === WC()->cart ) {
 			return $response;
 		}
 
-		$item = WC()->cart->get_cart_item( $key );
+		// `WC_Cart::get_cart_item()` reads `$this->cart_contents` directly,
+		// which live HTTP validation (docs/m1-closure.md, acceptance case 1)
+		// found is still empty the first time a request touches a freshly
+		// `wc_load_cart()`-initialized cart — core only actually populates
+		// it from the session inside `get_cart()` (`get_cart_from_session()`
+		// on first call). Calling `get_cart()` here forces that population
+		// before the lookup, exactly as core's own `get_cart_item()` calls
+		// expect to already have happened by request-lifecycle points where
+		// something else called `get_cart()` first.
+		$item = WC()->cart->get_cart()[ $key ] ?? array();
 
 		if ( ! is_array( $item ) || empty( $item[ MetaKeys::LINE_COMPONENT ] ) ) {
 			return $response;

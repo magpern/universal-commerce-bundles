@@ -18,9 +18,21 @@ use UniversalCommerceBundles\Domain\MetaKeys;
  * saved: pass 1 (`woocommerce_checkout_create_order_line_item`, before
  * save) copies cart-item meta and stamps the still-cart-item-key-shaped
  * parent link, and writes the kit snapshot on the parent (which needs no
- * order-item id); pass 2 (`woocommerce_checkout_order_created`, after
- * save) resolves every child's parent link from the parent's cart item key
- * to the parent's now-real order item id.
+ * order-item id); pass 2 (after save) resolves every child's parent link
+ * from the parent's cart item key to the parent's now-real order item id.
+ *
+ * Live HTTP validation (docs/m1-closure.md, acceptance case 1) found pass
+ * 1's hook genuinely shared (both paths build order line items through the
+ * same underlying per-item construction code), but pass 2's original
+ * single hook, `woocommerce_checkout_order_created`, is classic-checkout
+ * only — a real Store API checkout instead builds the order via
+ * `OrderController::create_order_from_cart()` and fires a differently
+ * named `woocommerce_store_api_checkout_order_created` action with the
+ * same `WC_Order` argument. Without also listening there, every Store API
+ * checkout left child lines permanently linked by a stale cart-item key
+ * instead of the parent's real order-item id — not a hypothetical, a
+ * defect this live pass actually reproduced and is why both hooks are
+ * registered below.
  */
 final class OrderConstruction {
 
@@ -34,6 +46,7 @@ final class OrderConstruction {
 	public function register(): void {
 		add_action( 'woocommerce_checkout_create_order_line_item', array( $this, 'copyLineItemMeta' ), 10, 4 );
 		add_action( 'woocommerce_checkout_order_created', array( $this, 'resolveParentLinks' ) );
+		add_action( 'woocommerce_store_api_checkout_order_created', array( $this, 'resolveParentLinks' ) );
 	}
 
 	/**

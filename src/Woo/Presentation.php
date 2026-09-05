@@ -258,6 +258,18 @@ final class Presentation {
 	}
 
 	/**
+	 * Live HTTP validation (docs/m1-closure.md) found the original
+	 * `$item['ucb_component']` check dead code: the Store API's real cart
+	 * item schema never carries that key (no extension writes it), so the
+	 * filter matched nothing and every genuine `POST .../add-item` /
+	 * hydration response leaked hidden child lines verbatim. The real
+	 * signal is the cart item's own `key` — hidden children are already
+	 * tagged with `MetaKeys::LINE_COMPONENT` in `WC()->cart->get_cart()`
+	 * (see CartConstruction), so this cross-references the Store API
+	 * item's `key` against that live cart data instead of a field the
+	 * response never contained. Recurses one level into non-`items` arrays
+	 * to reach the per-route bodies inside a Blocks hydration payload.
+	 *
 	 * @param mixed $data
 	 * @return mixed
 	 */
@@ -267,15 +279,63 @@ final class Presentation {
 		}
 
 		if ( isset( $data['items'] ) && is_array( $data['items'] ) ) {
+			$hiddenKeys = $this->hiddenCartItemKeys();
+
 			$data['items'] = array_values(
 				array_filter(
 					$data['items'],
-					static fn ( $item ): bool => ! ( is_array( $item ) && ! empty( $item['ucb_component'] ) )
+					static function ( $item ) use ( $hiddenKeys ): bool {
+						if ( ! is_array( $item ) ) {
+							return true;
+						}
+
+						if ( ! empty( $item['ucb_component'] ) ) {
+							return false;
+						}
+
+						$key = $item['key'] ?? null;
+
+						return ! ( is_string( $key ) && in_array( $key, $hiddenKeys, true ) );
+					}
 				)
 			);
+
+			return $data;
+		}
+
+		foreach ( $data as $key => $value ) {
+			if ( is_array( $value ) ) {
+				$data[ $key ] = $this->stripChildrenFromResponseData( $value );
+			}
 		}
 
 		return $data;
+	}
+
+	/**
+	 * @return array<int, string> cart item keys currently tagged as a
+	 *     hidden kit-component child, per the live `WC()->cart` session.
+	 */
+	private function hiddenCartItemKeys(): array {
+		if ( ! function_exists( 'WC' ) ) {
+			return array();
+		}
+
+		$wc = WC();
+
+		if ( ! isset( $wc->cart ) || ! is_object( $wc->cart ) || ! method_exists( $wc->cart, 'get_cart' ) ) {
+			return array();
+		}
+
+		$hidden = array();
+
+		foreach ( $wc->cart->get_cart() as $cartItemKey => $cartItem ) {
+			if ( is_array( $cartItem ) && ! empty( $cartItem[ MetaKeys::LINE_COMPONENT ] ) ) {
+				$hidden[] = (string) $cartItemKey;
+			}
+		}
+
+		return $hidden;
 	}
 
 	/**
