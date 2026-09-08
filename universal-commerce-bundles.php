@@ -3,7 +3,7 @@
  * Plugin Name:          Universal Commerce Bundles
  * Plugin URI:           https://github.com/magpern/universal-commerce-bundles
  * Description:          Fixed-kit product bundles for WooCommerce — a priced parent line plus hidden, real WooCommerce child order lines per component, picked to order. Documentation-driven, generic, no store-specific logic.
- * Version:              0.2.0
+ * Version:              0.2.1
  * Requires at least:    6.5
  * Requires PHP:         8.1
  * WC requires at least: 8.2
@@ -43,7 +43,7 @@ if ( ! defined( 'UCB_PLUGIN_DIR' ) ) {
 }
 
 if ( ! defined( 'UCB_PLUGIN_VERSION' ) ) {
-	define( 'UCB_PLUGIN_VERSION', '0.2.0' );
+	define( 'UCB_PLUGIN_VERSION', '0.2.1' );
 }
 // phpcs:enable WordPress.NamingConventions.PrefixAllGlobals
 
