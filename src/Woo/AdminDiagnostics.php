@@ -8,8 +8,16 @@ namespace UniversalCommerceBundles\Woo;
  * Read-only operational diagnostics for M2 Settings. Never writes options,
  * never loads host MU files, never claims ucb_runtime_ready emission unless
  * a same-request recorder is supplied.
+ *
+ * Host-guard detection: UCB does not ship or document a portable public
+ * guard-owned symbol (ADR-0006 — the guard is host-owned and out of this
+ * repository). Diagnostics therefore report "Guard detection unavailable"
+ * and must not infer presence from has_action( 'ucb_runtime_ready' ), which
+ * only proves that some callback is registered.
  */
 final class AdminDiagnostics {
+
+	public const HOST_GUARD_LABEL_UNAVAILABLE = 'Guard detection unavailable';
 
 	/**
 	 * @param callable():bool|null $bootstrapCompleted
@@ -22,7 +30,6 @@ final class AdminDiagnostics {
 	 *     woocommerce_minimum: string,
 	 *     woocommerce_supported: bool,
 	 *     hpos_state: string,
-	 *     host_guard_listeners: int,
 	 *     host_guard_label: string
 	 * }
 	 */
@@ -31,8 +38,6 @@ final class AdminDiagnostics {
 		$wcVersion   = defined( 'WC_VERSION' ) ? (string) WC_VERSION : '';
 		$wcSupported = Compatibility::meetsRequirements();
 		$bootOk      = null !== $bootstrapCompleted ? (bool) $bootstrapCompleted() : false;
-
-		$listeners = function_exists( 'has_action' ) ? (int) has_action( 'ucb_runtime_ready' ) : 0;
 
 		return array(
 			'plugin_version'        => defined( 'UCB_PLUGIN_VERSION' ) ? (string) UCB_PLUGIN_VERSION : '',
@@ -49,10 +54,7 @@ final class AdminDiagnostics {
 			'woocommerce_minimum'   => Compatibility::MINIMUM_WOOCOMMERCE_VERSION,
 			'woocommerce_supported' => $wcSupported,
 			'hpos_state'            => self::hposState(),
-			'host_guard_listeners'  => $listeners,
-			'host_guard_label'      => $listeners > 0
-				? 'At least one listener is registered on ucb_runtime_ready (informational)'
-				: 'No ucb_runtime_ready listeners detected (host guard optional / absent)',
+			'host_guard_label'      => self::HOST_GUARD_LABEL_UNAVAILABLE,
 		);
 	}
 

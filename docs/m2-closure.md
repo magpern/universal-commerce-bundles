@@ -21,8 +21,10 @@ Per `docs/m2-admin-usability-plan.md` on top of Architecture B / `v0.1.0`:
 4. **WooCommerce → Bundles → Settings** — diagnostics only
    (`src/Woo/AdminDiagnostics.php`): version, bootstrap/runtime-contract
    availability (without claiming `ucb_runtime_ready` emission), WooCommerce
-   version vs minimum, HPOS state, informational `has_action( 'ucb_runtime_ready' )`
-   listener probe.
+   version vs minimum, HPOS state, and host-guard line
+   `Guard detection unavailable` (UCB documents no portable public
+   guard-owned symbol; diagnostics must not infer from
+   `has_action( 'ucb_runtime_ready' )`).
 5. Capability: `manage_woocommerce`. Registration only through
    `KitModule::register()` after WooCommerce requirements pass.
 

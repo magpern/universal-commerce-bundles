@@ -161,7 +161,11 @@ vetoed by the host MU at priority 999.
   “unknown / unavailable”.
 - Host-guard detection only if a stable public symbol can be safely
   probed (informational): no include/require, no dependency, no failure
-  if absent, no enforcement / bypass / unlock / configuration.
+  if absent, no enforcement / bypass / unlock / configuration. UCB does
+  not document a portable public guard-owned symbol (guard is host-owned
+  per ADR-0006); the Settings diagnostics line is therefore
+  **Guard detection unavailable** and must not infer presence from
+  `has_action( 'ucb_runtime_ready' )`.
 
 **Reject (explicit non-settings):**
 
