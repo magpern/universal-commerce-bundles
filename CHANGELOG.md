@@ -4,6 +4,18 @@ All notable changes to Universal Commerce Bundles are documented here.
 
 The format is based on Keep a Changelog, and this project adheres to Semantic Versioning.
 
+## [0.2.0] - 2026-09-08
+
+### Added
+
+- WooCommerce → Bundles read-only kit overview (paginated, searchable, sortable) with dual catalog-exposure and operational-sellability fields.
+- WooCommerce → Bundles → Settings read-only diagnostics (bootstrap/runtime contract, WooCommerce, HPOS, informational host-guard listener probe).
+- Read-only `KitAvailability::validateLive()` / `assessSellability()` / `assessOverview()` so admin presentation reuses the authoritative availability graph without writing product meta.
+
+### Notes
+
+- Implements the frozen M2 plan in `docs/m2-admin-usability-plan.md`. No Architecture B contract changes, no migration, no MU-guard / fulfillment / promotions changes. Not a production enablement authorization.
+
 ## [0.1.0] - 2026-09-06
 
 ### Added

@@ -5,9 +5,13 @@ declare(strict_types=1);
 namespace UniversalCommerceBundles\Woo;
 
 use UniversalCommerceBundles\Application\CompositionRepository;
-use UniversalCommerceBundles\Domain\Composition;
+use UniversalCommerceBundles\Domain\MetaKeys;
 use UniversalCommerceBundles\Engine\AvailabilityCalculator;
 use UniversalCommerceBundles\Engine\CompositionValidator;
+use UniversalCommerceBundles\Engine\KitCatalogExposure;
+use UniversalCommerceBundles\Engine\KitOperationalAssessor;
+use UniversalCommerceBundles\Engine\KitOverviewAssessment;
+use UniversalCommerceBundles\Engine\KitSellability;
 use UniversalCommerceBundles\Engine\ValidationResult;
 
 /**
@@ -71,7 +75,7 @@ final class KitAvailability {
 	}
 
 	public function isPurchasable( int $kitId, int $excludeOrderId = 0 ): bool {
-		if ( 'yes' === get_post_meta( $kitId, \UniversalCommerceBundles\Domain\MetaKeys::PRODUCT_LOCKED_BY_DEACTIVATION, true ) ) {
+		if ( 'yes' === get_post_meta( $kitId, MetaKeys::PRODUCT_LOCKED_BY_DEACTIVATION, true ) ) {
 			return false;
 		}
 
@@ -96,7 +100,12 @@ final class KitAvailability {
 		);
 	}
 
-	public function validate( int $kitId ): ValidationResult {
+	/**
+	 * Live composition validation without refreshing the cached display
+	 * hint. Used by M2 admin overview so read-only screens never write
+	 * product meta (docs/m2-admin-usability-plan.md acceptance item 11).
+	 */
+	public function validateLive( int $kitId ): ValidationResult {
 		$composition = $this->compositions->getComposition( $kitId );
 		$states      = array();
 
@@ -104,11 +113,58 @@ final class KitAvailability {
 			$states[] = $this->facts->stateFor( $stockManagedId );
 		}
 
-		$result = $this->validator->validate( $composition, $states );
+		return $this->validator->validate( $composition, $states );
+	}
+
+	public function validate( int $kitId ): ValidationResult {
+		$result = $this->validateLive( $kitId );
 
 		$this->compositions->setCachedValidityHint( $kitId, $result->valid );
 
 		return $result;
+	}
+
+	/**
+	 * Read-only operational sellability for admin presentation. Does not
+	 * write product meta and does not invent a second stock formula.
+	 */
+	public function assessSellability( int $kitId, int $excludeOrderId = 0 ): KitSellability {
+		$assessor     = new KitOperationalAssessor();
+		$locked       = 'yes' === get_post_meta( $kitId, MetaKeys::PRODUCT_LOCKED_BY_DEACTIVATION, true );
+		$validation   = $this->validateLive( $kitId );
+		$availableQty = 0;
+
+		if ( $validation->valid ) {
+			$availableQty = $this->availabilityCalculator->calculate(
+				$this->liveComponentAvailability( $kitId, $excludeOrderId )
+			);
+		}
+
+		return $assessor->assessSellability( $locked, $validation, $availableQty );
+	}
+
+	/**
+	 * Dual-field M2 assessment: catalog exposure + sellability.
+	 *
+	 * @param string $postStatus        WordPress post status.
+	 * @param string $catalogVisibility WooCommerce catalog visibility slug.
+	 */
+	public function assessOverview(
+		int $kitId,
+		string $postStatus,
+		string $catalogVisibility,
+		int $excludeOrderId = 0
+	): KitOverviewAssessment {
+		$assessor = new KitOperationalAssessor();
+
+		return new KitOverviewAssessment(
+			$assessor->assessCatalogExposure( $postStatus, $catalogVisibility ),
+			$this->assessSellability( $kitId, $excludeOrderId )
+		);
+	}
+
+	public function assessCatalogExposure( string $postStatus, string $catalogVisibility ): KitCatalogExposure {
+		return ( new KitOperationalAssessor() )->assessCatalogExposure( $postStatus, $catalogVisibility );
 	}
 
 	/**
