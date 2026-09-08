@@ -1,9 +1,9 @@
 # M2 — Admin usability (Bundles overview + diagnostics)
 
-Status: **documentation freeze.** This plan becomes frozen upon merge of
-its documentation-only pull request. **No implementation authorization is
-granted by this freeze** until a separate implementation PR is explicitly
-authorized.
+Status: **implemented in `0.2.0`** (see `docs/m2-closure.md`). This plan was
+frozen by the documentation-only merge before implementation. Architecture B
+contracts, host MU-guard behaviour, fulfillment / promotions contracts, and
+runtime purchasability maths remain unchanged.
 
 Baseline: released UCB `v0.1.0` (Architecture B). This milestone must not
 change Architecture B contracts, host MU-guard behaviour, fulfillment or
@@ -161,7 +161,11 @@ vetoed by the host MU at priority 999.
   “unknown / unavailable”.
 - Host-guard detection only if a stable public symbol can be safely
   probed (informational): no include/require, no dependency, no failure
-  if absent, no enforcement / bypass / unlock / configuration.
+  if absent, no enforcement / bypass / unlock / configuration. UCB does
+  not document a portable public guard-owned symbol (guard is host-owned
+  per ADR-0006); the Settings diagnostics line is therefore
+  **Guard detection unavailable** and must not infer presence from
+  `has_action( 'ucb_runtime_ready' )`.
 
 **Reject (explicit non-settings):**
 
