@@ -1285,6 +1285,24 @@ Contract rules:
 
 ---
 
+## M2 — Admin usability (Bundles overview + diagnostics)
+
+Operator-facing WooCommerce admin surface: **WooCommerce → Bundles**
+(read-only kit overview) and **WooCommerce → Bundles → Settings**
+(diagnostics only). Catalog exposure and operational sellability are
+independent fields; sellability reuses the authoritative
+`KitAvailability` path. No second stock engine, no writable settings that
+weaken the safety model, no ADR (identity / cross-repo contracts
+unchanged).
+
+Frozen plan: [`docs/m2-admin-usability-plan.md`](m2-admin-usability-plan.md).
+**This architecture pointer and that plan grant no implementation
+authorization by themselves** — M2 still requires a separate
+implementation authorization / PR after the documentation freeze merges.
+Proposed implementation version: `0.2.0`.
+
+---
+
 ## Fulfillment-plugin milestone — parent-line skip (formerly "component expansion")
 
 Separate repository, own plan, branch, PR, validation and closure.
@@ -1659,7 +1677,9 @@ against `mp-commerce-promotions`'s own accepted implementation: the hidden
 child-line exclusion by real implementation, and the originally proposed
 default sitewide-campaign kit exclusion by supersession (C27), not left
 open. The fulfillment-plugin and host-guard milestones remain open in
-their own repositories.
+their own repositories. M2 (admin usability) has a separate
+documentation-only freeze in `docs/m2-admin-usability-plan.md`; merging
+that freeze does **not** authorize M2 implementation by itself.
 
 ---
 
