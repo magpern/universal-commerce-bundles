@@ -64,9 +64,8 @@ final class KitDataPanel {
 		// saveComposition()/Composition::fromRows() expect.
 		$displayRows = array_map(
 			static function ( array $row ): array {
-				$row['product_name'] = $row['product_id'] > 0
-					? ( get_the_title( $row['product_id'] ) ?: sprintf( '#%d', $row['product_id'] ) )
-					: '';
+				$title               = $row['product_id'] > 0 ? get_the_title( $row['product_id'] ) : '';
+				$row['product_name'] = '' !== $title ? $title : ( $row['product_id'] > 0 ? sprintf( '#%d', $row['product_id'] ) : '' );
 
 				return $row;
 			},
@@ -148,7 +147,7 @@ final class KitDataPanel {
 		// wp_add_inline_script() silently no-ops if that handle hasn't been
 		// registered yet, which depends on plugin load order (UCB vs.
 		// WooCommerce) and is not guaranteed.
-		wp_register_script( 'ucb-kit-components-repeater', false, array( 'jquery', 'wc-enhanced-select' ), false, true );
+		wp_register_script( 'ucb-kit-components-repeater', false, array( 'jquery', 'wc-enhanced-select' ), UCB_PLUGIN_VERSION, true );
 		wp_enqueue_script( 'ucb-kit-components-repeater' );
 		wp_add_inline_script(
 			'ucb-kit-components-repeater',
