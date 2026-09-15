@@ -4,6 +4,13 @@ All notable changes to Universal Commerce Bundles are documented here.
 
 The format is based on Keep a Changelog, and this project adheres to Semantic Versioning.
 
+## [0.2.2] - 2026-09-15
+
+### Fixed
+
+- Kit Components repeater: the "Add component" button did nothing on sites where WooCommerce loads after this plugin (alphabetical `active_plugins` order puts `universal-commerce-bundles` before `woocommerce`). The repeater script was attached via `wp_add_inline_script()` to a WooCommerce-owned handle (`wc-admin-product-meta-boxes`) that isn't guaranteed to be registered yet when this plugin's own `admin_enqueue_scripts` callback runs; it now uses its own dedicated, always-registered handle.
+- Kit Components repeater: the Product column was a plain numeric id input rather than a live product search, contrary to the panel's own intent. Replaced it with WooCommerce's own `wc-product-search` select2 widget (ajax search, 3+ characters), matching the pattern WooCommerce itself uses for Upsells/Cross-sells/Grouped Products, and pre-populated with the saved product's title when editing an existing kit.
+
 ## [0.2.1] - 2026-09-08
 
 ### Fixed
