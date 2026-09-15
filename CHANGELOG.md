@@ -4,6 +4,12 @@ All notable changes to Universal Commerce Bundles are documented here.
 
 The format is based on Keep a Changelog, and this project adheres to Semantic Versioning.
 
+## [0.2.3] - 2026-09-15
+
+### Added
+
+- Self-update checking via the private update server: when `PRIVATE_UPDATE_SERVER` is defined in `wp-config.php`, the Plugins list page now shows "Check for updates" and version-notification links for this plugin, matching the other `universal-*` plugins. Inert (no network calls, no new UI) when the constant is not defined.
+
 ## [0.2.2] - 2026-09-15
 
 ### Fixed

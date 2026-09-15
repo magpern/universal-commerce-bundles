@@ -3,7 +3,7 @@
  * Plugin Name:          Universal Commerce Bundles
  * Plugin URI:           https://github.com/magpern/universal-commerce-bundles
  * Description:          Fixed-kit product bundles for WooCommerce — a priced parent line plus hidden, real WooCommerce child order lines per component, picked to order. Documentation-driven, generic, no store-specific logic.
- * Version:              0.2.2
+ * Version:              0.2.3
  * Requires at least:    6.5
  * Requires PHP:         8.1
  * WC requires at least: 8.2
@@ -43,7 +43,7 @@ if ( ! defined( 'UCB_PLUGIN_DIR' ) ) {
 }
 
 if ( ! defined( 'UCB_PLUGIN_VERSION' ) ) {
-	define( 'UCB_PLUGIN_VERSION', '0.2.2' );
+	define( 'UCB_PLUGIN_VERSION', '0.2.3' );
 }
 // phpcs:enable WordPress.NamingConventions.PrefixAllGlobals
 
@@ -54,6 +54,19 @@ if ( is_readable( $ucbAutoloader ) ) {
 }
 
 unset( $ucbAutoloader );
+
+/**
+ * Automatic updates via the private update server. Define
+ * PRIVATE_UPDATE_SERVER (scheme + host, no trailing slash) in wp-config.php
+ * to enable; when it is not defined the plugin does not check for updates.
+ */
+if ( defined( 'PRIVATE_UPDATE_SERVER' ) && PRIVATE_UPDATE_SERVER && class_exists( \YahnisElsts\PluginUpdateChecker\v5\PucFactory::class ) ) {
+	\YahnisElsts\PluginUpdateChecker\v5\PucFactory::buildUpdateChecker(
+		rtrim( (string) PRIVATE_UPDATE_SERVER, '/' ) . '/?action=get_metadata&slug=universal-commerce-bundles',
+		__FILE__,
+		'universal-commerce-bundles'
+	);
+}
 
 // Declared unconditionally, even if the rest of bootstrap below never runs
 // or fails for some other reason — WooCommerce reads compatibility
